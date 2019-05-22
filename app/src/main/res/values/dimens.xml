@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Live Room Activity -->
+    <dimen name="remote_view_width">160dp</dimen>
+    <dimen name="remote_view_height">240dp</dimen>
+    <dimen name="remote_view_margin">24dp</dimen>
+</resources>
