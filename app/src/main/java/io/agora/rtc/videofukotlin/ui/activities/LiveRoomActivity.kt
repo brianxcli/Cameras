@@ -1,8 +1,10 @@
 package io.agora.rtc.videofukotlin.ui.activities
 
+import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.util.Log
 import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import io.agora.rtc.RtcEngine
 import io.agora.rtc.video.VideoCanvas
@@ -16,29 +18,36 @@ import kotlinx.android.synthetic.main.live_room_activity.*
 
 private const val TAG : String = "LiveRoomActivity"
 
-class LiveRoomActivity : RTCActivity(), IEventHandler {
+class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener {
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.live_room_activity)
+        local_preview.surfaceTextureListener = this
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        videoCapture().closeCamera()
         eventHandler().removeHandler(this)
         rtcEngine().leaveChannel()
         RtcEngine.destroy()
+        videoCapture().destroy()
     }
 
     override fun onAllPermissionsGranted() {
         super.onAllPermissionsGranted()
+        // configRtcEngine()
         initUI()
-        configRtcEngine()
+        videoCapture().openCamera()
+        videoCapture().startPreview()
     }
 
     private fun initUI() {
-        val surface : SurfaceView = RtcEngine.CreateRendererView(this)
-        rtcEngine().setupLocalVideo(VideoCanvas(surface))
-        local_view_container.addView(surface)
+        local_preview.surfaceTextureListener = this
+    }
+
+    private fun initPreview(surfaceTexture: SurfaceTexture?) {
+        videoCapture().setPreviewDisplay(surfaceTexture)
     }
 
     private fun configRtcEngine() {
@@ -74,8 +83,21 @@ class LiveRoomActivity : RTCActivity(), IEventHandler {
 
     override fun onFirstRemoteVideoDecoded(uid: Int, width: Int, height: Int, elapsed: Int) {
         Log.e(TAG, "first remote video decoded:$uid $width $height $elapsed")
-        runOnUiThread {
-            prepareRemoteView(uid)
-        }
+    }
+
+    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture?, width: Int, height: Int) {
+
+    }
+
+    override fun onSurfaceTextureUpdated(surface: SurfaceTexture?) {
+
+    }
+
+    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture?): Boolean {
+        return true
+    }
+
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture?, width: Int, height: Int) {
+        initPreview(surface)
     }
 }
