@@ -2,13 +2,13 @@ package io.agora.rtc.videofukotlin.capture
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.os.Handler
 import android.os.HandlerThread
-import android.util.Log
+import android.util.Size
 import android.view.Surface
-import java.util.*
 import kotlin.collections.ArrayList
 
 class VideoCapture(context : Context) {
@@ -17,20 +17,28 @@ class VideoCapture(context : Context) {
     private lateinit var captureSession: CameraCaptureSession
     private lateinit var captureRequest: CaptureRequest
     private var currentCameraId: String = DEFAULT_CAMERA_ID
-    private var cameraConnected: Boolean = false
-    private var isCapturing: Boolean = false
+    @Volatile private var cameraOpened: Boolean = false
+    @Volatile private var isCapturing: Boolean = false
     private val cameraStateCallback: CameraStateCallBack = CameraStateCallBack()
     private val captureStateCallBack: CaptureStateCallBack = CaptureStateCallBack()
-    private val cameraCaptureCallback: CameraCaptureCallback = CameraCaptureCallback()
     private lateinit var captureLooper: CaptureRequestLooper
 
-    // if the device hasn't been prepared properly, the preview request
-    // is recorded here, and the preview will be triggered if the camera opens
+    // Called in the session's onClosed callback, indicating whether we
+    // want to close the current active camera device as well
+    @Volatile var shouldCloseCurrentCamera: Boolean = false
+
+    // Whether we want to open the camera again when a capture session
+    // is closed. Used in the session's onClosed callback while switching cameras.
+    @Volatile var shouldReopenCamera: Boolean = false
+
+    @Volatile var shouldQuitWorkingThread: Boolean = false
+
+    // If the device hasn't been prepared properly, the preview request
+    // is recorded here, and the preview will be triggered if the
+    // camera opens correctly
     private var previewPendingRequest = false
 
-    private var isPreviewing: Boolean = false
-
-    // surfaces that want to receive the preview data
+    // Surfaces that want to receive the capture data
     private val displayTargetList: MutableList<Surface> = ArrayList()
 
     private lateinit var previewDisplay: SurfaceTexture
@@ -44,33 +52,97 @@ class VideoCapture(context : Context) {
     constructor(context: Context, width: Int, height: Int) : this(context) {
         this.width = width
         this.height = height
+
+        handlerThread = createHandlerThread()
+        handler = Handler(handlerThread.looper)
+    }
+
+    private fun createHandlerThread() : HandlerThread {
+        val thread = HandlerThread(TAG)
+        thread.start()
+        return thread
+    }
+
+    companion object CameraUtil {
+        const val DEFAULT_CAPTURE_WIDTH = 640
+        const val DEFAULT_CAPTURE_HEIGHT = 480
+        const val PREVIEW_SURFACE_INDEX: Int = 0
+        const val TAG: String = "VideoCapture"
+        const val LENS_ID_FRONT: String = CameraCharacteristics.LENS_FACING_FRONT.toString()
+        const val LENS_ID_BACK: String = CameraCharacteristics.LENS_FACING_BACK.toString()
+        const val DEFAULT_CAMERA_ID: String = LENS_ID_BACK
+
+        fun Size.equalOrLarger(another: Size) : Boolean {
+            return this.width >= another.width && this.height >= another.height
+        }
     }
 
     @SuppressLint("MissingPermission")
     fun openCamera(id: String) {
-        handlerThread = createHandlerThread()
-        handler = Handler(handlerThread.looper)
-
         currentCameraId = id
         cameraManager.openCamera(currentCameraId, cameraStateCallback, handler)
     }
 
     fun openCamera() {
-        openCamera(DEFAULT_CAMERA_ID)
+        openCamera(currentCameraId)
     }
 
     /**
-     * Set the display target as a SurfaceTexture, must be called before
-     * starting preview
+     * Set the display target as a SurfaceTexture, must be
+     * called before starting camera preview
      */
     fun setPreviewDisplay(preview: SurfaceTexture?) {
-        Log.e(TAG, "preview surface is ready")
-        previewDisplay = preview!!
+        handler.post{ previewDisplay = preview!! }
+    }
+
+    private fun createPreviewSurface() : Surface {
+        val size: Size = findOptimalBufferSize(width, height)
+        previewDisplay.setDefaultBufferSize(size.width, size.height)
+        return Surface(previewDisplay)
+    }
+
+    /**
+     * Find the optimal buffer size according to the size
+     * that we want the captured image to be
+     * @param width
+     * @param height
+     */
+    private fun findOptimalBufferSize(width: Int, height: Int) : Size {
+        // The default buffer size of a Surface as a target to a
+        // capture request must be one of the supported values
+        // that can be acquired from the camera characteristic.
+        val characteristic: CameraCharacteristics =
+            cameraManager.getCameraCharacteristics(currentCameraId)
+        val sizes: Array<out Size> =
+            characteristic[CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP]!!
+                .getOutputSizes(ImageFormat.JPEG)
+
+        // The input width and height may not be supported.
+        // We want to pick one available size, such that the
+        // captured image is large enough and will be cropped as
+        // little as possible to what we actually need.
+
+        // Note the width is usually larger than the height here
+        var curSize = Size(10000, 10000)
+        val target = Size(width, height)
+        var found = false
+        sizes.forEach {
+            if (it.equalOrLarger(target) && curSize.equalOrLarger(it)) {
+                found = true
+                curSize = it
+            }
+        }
+
+        return if (found) curSize else Size(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
     }
 
     private fun getDisplayTargetList() {
+        if (displayTargetList.isNotEmpty()) {
+            displayTargetList.clear()
+        }
+
         // keep the preview display the first in the list
-        displayTargetList.add(PREVIEW_SURFACE_INDEX, Surface(previewDisplay))
+        displayTargetList.add(PREVIEW_SURFACE_INDEX, createPreviewSurface())
 
         // TODO Maybe add more target surface here
     }
@@ -81,46 +153,48 @@ class VideoCapture(context : Context) {
     }
 
     fun startPreview() {
-        if (::camera.isInitialized && cameraConnected && !isCapturing) {
-            createCaptureSession()
-        } else {
-            previewPendingRequest = true
-        }
-    }
-
-    fun closeCamera() {
         handler.post{
-            if (cameraConnected) {
-                camera.close()
-                cameraConnected = false
-            }}
-    }
-
-    fun destroy() {
-        closeCamera()
-        quitHandlerThread(handlerThread)
-    }
-
-    companion object CameraUtil {
-        const val DEFAULT_CAMERA_ID: String = "1"
-        const val PREVIEW_SURFACE_INDEX: Int = 0
-        const val TAG: String = "VideoCapture"
-
-        fun switchCamera() {
-
-        }
-
-        fun createHandlerThread() : HandlerThread {
-            val thread = HandlerThread(TAG)
-            thread.start()
-            return thread
-        }
-
-        fun quitHandlerThread(thread: HandlerThread?) {
-            if (thread!!.isAlive) {
-                thread.quit()
+            if (::camera.isInitialized && cameraOpened && !isCapturing) {
+                createCaptureSession()
+            } else {
+                previewPendingRequest = true
             }
         }
+    }
+
+    private fun pauseCapture() {
+        // abandons current in-flight capture requests as
+        // fast as possible
+        captureSession.abortCaptures()
+        captureLooper.pause()
+    }
+
+    fun stopCapture(shouldCloseCurrentCamera: Boolean, quitWorkingThread: Boolean) {
+        if (cameraOpened && isCapturing) {
+            pauseCapture()
+            closeSession(shouldCloseCurrentCamera, quitWorkingThread)
+        }
+    }
+
+    private fun closeSession(shouldCloseCamera: Boolean, quitWorkingThread: Boolean) {
+        shouldCloseCurrentCamera = shouldCloseCamera
+        shouldQuitWorkingThread = quitWorkingThread
+        captureSession.close()
+    }
+
+    private fun closeCamera() {
+        camera.close()
+    }
+
+    fun switchCamera() {
+        shouldReopenCamera = true
+        shouldQuitWorkingThread = false
+        currentCameraId = switchCameraId()
+        stopCapture(true, shouldQuitWorkingThread)
+    }
+
+    private fun switchCameraId() : String {
+        return if (currentCameraId == LENS_ID_FRONT) LENS_ID_BACK else LENS_ID_FRONT
     }
 
     /**
@@ -129,22 +203,24 @@ class VideoCapture(context : Context) {
     inner class CameraStateCallBack : CameraDevice.StateCallback() {
         override fun onOpened(cameraDevice: CameraDevice) {
             camera = cameraDevice
-            cameraConnected = true
+            currentCameraId = cameraDevice.id
+            cameraOpened = true
 
             if (previewPendingRequest && !isCapturing) {
-                // a preview request is received, but it is not
-                // responded because the camera is not ready.
+                // a preview request was received, but the camera was not ready.
+                // it hasn't been handled until here the camera is confirmed to
+                // be working properly.
                 previewPendingRequest = false
                 startPreview()
             }
         }
 
         override fun onDisconnected(camera: CameraDevice) {
-            cameraConnected = false
+            cameraOpened = false
         }
 
         override fun onError(camera: CameraDevice, error: Int) {
-            cameraConnected = false
+            cameraOpened = false
         }
     }
 
@@ -162,7 +238,7 @@ class VideoCapture(context : Context) {
             // The configuration is complete and the session is ready to actually capture data
             captureSession = session
 
-            if (::camera.isInitialized && cameraConnected) {
+            if (::camera.isInitialized && cameraOpened) {
                 startCapture(session)
             }
         }
@@ -178,52 +254,32 @@ class VideoCapture(context : Context) {
         }
 
         override fun onClosed(session: CameraCaptureSession) {
-            // the session is closed
+            // Creating a new session also calls the old session's callback here.
+            // Closing the session also close the connection to the camera, but
+            // the device can be reopened later.
             isCapturing = false
-            captureLooper.pause()
+            cameraOpened = false
+
+            if (shouldCloseCurrentCamera) { closeCamera() }
+
+            if (shouldReopenCamera) {
+                // Open another camera device instance here like when
+                // switching cameras. The default camera should be set
+                // to the target camera id before this callback
+                previewPendingRequest = true
+                openCamera()
+                shouldReopenCamera = false
+            }
+
+            if (shouldQuitWorkingThread) {
+                handler.post{ handlerThread.quitSafely() }
+                shouldQuitWorkingThread = false
+            }
         }
 
         override fun onActive(session: CameraCaptureSession) {
             // the session starts actively processing capture requests
             isCapturing = true
-        }
-    }
-
-    private var lastTs: Long = 0
-
-    /**
-     * Capture callback for acquiring states when capturing a single image
-     */
-    inner class CameraCaptureCallback : CameraCaptureSession.CaptureCallback() {
-        override fun onCaptureStarted(session: CameraCaptureSession,
-            request: CaptureRequest, timestamp: Long, frameNumber: Long) {
-            // start to respond to the capture request or reprocess request
-        }
-
-        override fun onCaptureSequenceAborted(session: CameraCaptureSession, sequenceId: Int) {
-            super.onCaptureSequenceAborted(session, sequenceId)
-        }
-
-        override fun onCaptureCompleted(session: CameraCaptureSession,
-            request: CaptureRequest, result: TotalCaptureResult) {
-        }
-
-        override fun onCaptureFailed(session: CameraCaptureSession, request: CaptureRequest, failure: CaptureFailure) {
-            super.onCaptureFailed(session, request, failure)
-        }
-
-        override fun onCaptureSequenceCompleted(session: CameraCaptureSession, sequenceId: Int, frameNumber: Long) {
-            super.onCaptureSequenceCompleted(session, sequenceId, frameNumber)
-        }
-
-        override fun onCaptureProgressed(session: CameraCaptureSession,
-            request: CaptureRequest, partialResult: CaptureResult) {
-            super.onCaptureProgressed(session, request, partialResult)
-        }
-
-        override fun onCaptureBufferLost(session: CameraCaptureSession,
-            request: CaptureRequest, target: Surface, frameNumber: Long) {
-            super.onCaptureBufferLost(session, request, target, frameNumber)
         }
     }
 
@@ -233,21 +289,17 @@ class VideoCapture(context : Context) {
         // default capture frame rate is 15
         private var interval: Long = 66
 
-        private var paused: Boolean = false
+        @Volatile private var paused: Boolean = false
 
         private val callback: CaptureRunnable = CaptureRunnable()
 
+        /**
+         * The actual frame rate may be less than desired due to the
+         * capability of the camera hardware
+         */
         fun setCaptureFrameRate(fps: Int) {
             // set to default if the fps is out of the valid range
-            interval = if (fps <= 0 || fps > 60) 66 else (1000L / fps)
-        }
-
-        fun setSession(session: CameraCaptureSession) {
-            this.session = session
-        }
-
-        fun setRequest(request: CaptureRequest) {
-            this.request = request
+            handler.post{ interval = if (fps <= 0 || fps > 30) 66 else (1000L / fps) }
         }
 
         fun loop() {
@@ -256,16 +308,13 @@ class VideoCapture(context : Context) {
 
         fun pause() {
             paused = true
-        }
-
-        fun resume() {
-            paused = false
+            handler.removeCallbacks(callback)
         }
 
         inner class CaptureRunnable : Runnable {
             override fun run() {
-                if (cameraConnected) {
-                    session.capture(request, cameraCaptureCallback, handler)
+                if (cameraOpened) {
+                    session.capture(request, null, handler)
                 }
 
                 if (!paused) {

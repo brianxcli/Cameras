@@ -18,7 +18,7 @@ import kotlinx.android.synthetic.main.live_room_activity.*
 
 private const val TAG : String = "LiveRoomActivity"
 
-class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener {
+class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener, View.OnClickListener {
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.live_room_activity)
@@ -27,11 +27,10 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
 
     override fun onDestroy() {
         super.onDestroy()
-        videoCapture().closeCamera()
+
         eventHandler().removeHandler(this)
         rtcEngine().leaveChannel()
         RtcEngine.destroy()
-        videoCapture().destroy()
     }
 
     override fun onAllPermissionsGranted() {
@@ -43,7 +42,13 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     }
 
     private fun initUI() {
-        local_preview.surfaceTextureListener = this
+        btn_switch_camera.setOnClickListener(this)
+    }
+
+    override fun onClick(view: View?) {
+        when (view!!.id) {
+            btn_switch_camera.id -> { videoCapture().switchCamera() }
+        }
     }
 
     private fun initPreview(surfaceTexture: SurfaceTexture?) {
@@ -94,6 +99,8 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture?): Boolean {
+        // if the Activity exits, this method will be called AFTER the Activity's
+        // onDestroy() is called.
         return true
     }
 

@@ -19,8 +19,8 @@ abstract class RTCActivity : BaseActivity() {
         eventHandler.addHandler(handler)
     }
 
-    private val defaultWidth: Int = 1280
-    private val defaultHeight: Int = 720
+    private val defaultWidth: Int = 640
+    private val defaultHeight: Int = 480
 
     private lateinit var videoCapture: VideoCapture
 
@@ -31,12 +31,17 @@ abstract class RTCActivity : BaseActivity() {
         videoCapture = VideoCapture(applicationContext, defaultWidth, defaultHeight)
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        videoCapture().stopCapture(true, true)
+    }
+
     /**
      * Agora RTC based functions need to be called after
      * all required permissions are granted
      */
     override fun onAllPermissionsGranted() {
-        // prepare rtc engine here
+        // Prepare rtc engine here
         prepareRtcEngine()
     }
 
