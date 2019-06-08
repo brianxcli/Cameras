@@ -5,6 +5,8 @@ import android.content.Context
 import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
+import android.media.Image
+import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
@@ -43,10 +45,13 @@ class VideoCapture(context : Context) {
 
     private lateinit var previewDisplay: SurfaceTexture
 
+    private lateinit var capturedImageReader: ImageReader
+    private val imageAvailableListener: OnCaptureImageAvailableListener = OnCaptureImageAvailableListener()
+
     private var width: Int = 640
     private var height: Int = 480
 
-    private lateinit var handlerThread: HandlerThread
+    private lateinit var handlerThread: EGLHandlerThread
     private lateinit var handler: Handler
 
     constructor(context: Context, width: Int, height: Int) : this(context) {
@@ -57,8 +62,8 @@ class VideoCapture(context : Context) {
         handler = Handler(handlerThread.looper)
     }
 
-    private fun createHandlerThread() : HandlerThread {
-        val thread = HandlerThread(TAG)
+    private fun createHandlerThread() : EGLHandlerThread {
+        val thread = EGLHandlerThread(TAG)
         thread.start()
         return thread
     }
@@ -67,6 +72,7 @@ class VideoCapture(context : Context) {
         const val DEFAULT_CAPTURE_WIDTH = 640
         const val DEFAULT_CAPTURE_HEIGHT = 480
         const val PREVIEW_SURFACE_INDEX: Int = 0
+        const val MAX_IMAGE_READER_SIZE = 1
         const val TAG: String = "VideoCapture"
         const val LENS_ID_FRONT: String = CameraCharacteristics.LENS_FACING_FRONT.toString()
         const val LENS_ID_BACK: String = CameraCharacteristics.LENS_FACING_BACK.toString()
@@ -136,15 +142,25 @@ class VideoCapture(context : Context) {
         return if (found) curSize else Size(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
     }
 
+    private fun createImageReader(size: Size) {
+        capturedImageReader = ImageReader.newInstance(size.width,
+            size.height, ImageFormat.YUV_420_888, MAX_IMAGE_READER_SIZE)
+        capturedImageReader.setOnImageAvailableListener(imageAvailableListener, handler)
+    }
+
     private fun getDisplayTargetList() {
         if (displayTargetList.isNotEmpty()) {
             displayTargetList.clear()
         }
 
+        // The size of the captured images
+        val size: Size = findOptimalBufferSize(width, height)
+
         // keep the preview display the first in the list
         displayTargetList.add(PREVIEW_SURFACE_INDEX, createPreviewSurface())
 
-        // TODO Maybe add more target surface here
+        createImageReader(size)
+        displayTargetList.add(capturedImageReader.surface)
     }
 
     private fun createCaptureSession() {
@@ -162,11 +178,17 @@ class VideoCapture(context : Context) {
         }
     }
 
-    private fun pauseCapture() {
+    fun pauseCapture() {
         // abandons current in-flight capture requests as
         // fast as possible
-        captureSession.abortCaptures()
-        captureLooper.pause()
+        if (cameraOpened && isCapturing) {
+            captureSession.abortCaptures()
+            captureLooper.pause()
+        }
+    }
+
+    fun resumeCapture() {
+        captureLooper.resume()
     }
 
     fun stopCapture(shouldCloseCurrentCamera: Boolean, quitWorkingThread: Boolean) {
@@ -184,6 +206,11 @@ class VideoCapture(context : Context) {
 
     private fun closeCamera() {
         camera.close()
+        recycleTargets()
+    }
+
+    private fun recycleTargets() {
+        capturedImageReader.close()
     }
 
     fun switchCamera() {
@@ -307,8 +334,17 @@ class VideoCapture(context : Context) {
         }
 
         fun pause() {
-            paused = true
-            handler.removeCallbacks(callback)
+            if (cameraOpened && !paused) {
+                paused = true
+                handler.removeCallbacks(callback)
+            }
+        }
+
+        fun resume() {
+            if (cameraOpened && paused) {
+                paused = false
+                loop()
+            }
         }
 
         inner class CaptureRunnable : Runnable {
@@ -321,6 +357,28 @@ class VideoCapture(context : Context) {
                     handler.postDelayed(callback, interval)
                 }
             }
+        }
+    }
+
+    inner class OnCaptureImageAvailableListener : ImageReader.OnImageAvailableListener {
+        override fun onImageAvailable(reader: ImageReader?) {
+            val image: Image = reader!!.acquireLatestImage()
+            if (image.format == ImageFormat.YUV_420_888) {
+                // assembly a frame using the planes contained in the image
+                // and queue it into the working thread maintaining EGL context
+            }
+
+            image.close()
+        }
+    }
+
+    inner class EGLHandlerThread(name: String) : HandlerThread(name) {
+        init {
+            createEGLContext()
+        }
+
+        private fun createEGLContext() {
+
         }
     }
 }

@@ -43,11 +43,17 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
 
     private fun initUI() {
         btn_switch_camera.setOnClickListener(this)
+        btn_pause_preview.setOnClickListener(this)
+        btn_resume_preview.setOnClickListener(this)
+        btn_stop_preview.setOnClickListener(this)
     }
 
     override fun onClick(view: View?) {
         when (view!!.id) {
             btn_switch_camera.id -> { videoCapture().switchCamera() }
+            btn_pause_preview.id -> { videoCapture().pauseCapture() }
+            btn_resume_preview.id -> { videoCapture().resumeCapture() }
+            btn_stop_preview.id -> { videoCapture().stopCapture(true, false) }
         }
     }
 
