@@ -3,7 +3,7 @@ package io.agora.rtc.videofukotlin.opengles
 import android.opengl.EGL14
 import android.opengl.EGLSurface
 
-class EglSurfaceBase(val eglCore: EglCore) {
+abstract class EglSurfaceBase(private val eglCore: EglCore) {
     private var width: Int = -1
     private var height: Int = -1
 
@@ -25,5 +25,16 @@ class EglSurfaceBase(val eglCore: EglCore) {
         eglSurface = eglCore.createOffscreenSurface(width, height)
         this.width = width
         this.height = height
+    }
+
+    private fun releaseEglSurface() {
+        eglCore.releaseSurface(eglSurface)
+        eglSurface = EGL14.EGL_NO_SURFACE
+        width = -1
+        height = -1
+    }
+
+    protected fun release() {
+        releaseEglSurface()
     }
 }

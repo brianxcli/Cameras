@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
 import android.view.Surface
+import io.agora.rtc.videofukotlin.opengles.EglCore
 import kotlin.collections.ArrayList
 
 class VideoCapture(context : Context) {
@@ -58,11 +59,11 @@ class VideoCapture(context : Context) {
         this.width = width
         this.height = height
 
-        handlerThread = createHandlerThread()
+        handlerThread = createWorkingThread()
         handler = Handler(handlerThread.looper)
     }
 
-    private fun createHandlerThread() : EGLHandlerThread {
+    private fun createWorkingThread() : EGLHandlerThread {
         val thread = EGLHandlerThread(TAG)
         thread.start()
         return thread
@@ -373,12 +374,23 @@ class VideoCapture(context : Context) {
     }
 
     inner class EGLHandlerThread(name: String) : HandlerThread(name) {
+        private lateinit var eglCore : EglCore
+
         init {
-            createEGLContext()
+            createEgl()
         }
 
-        private fun createEGLContext() {
+        private fun createEgl() {
+            eglCore = EglCore()
+        }
 
+        private fun recycleEgl() {
+            eglCore.release()
+        }
+
+        override fun quitSafely(): Boolean {
+            recycleEgl()
+            return super.quitSafely()
         }
     }
 }
