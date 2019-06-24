@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
+import android.view.animation.ScaleAnimation
 import io.agora.rtc.RtcEngine
 import io.agora.rtc.video.VideoCanvas
 import io.agora.rtc.video.VideoCanvas.RENDER_MODE_HIDDEN
@@ -13,7 +14,6 @@ import io.agora.rtc.video.VideoEncoderConfiguration
 import io.agora.rtc.video.VideoEncoderConfiguration.STANDARD_BITRATE
 import io.agora.rtc.video.VideoEncoderConfiguration.VD_640x480
 import io.agora.rtc.videofukotlin.R
-import io.agora.rtc.videofukotlin.encoder.VideoEncoder
 import io.agora.rtc.videofukotlin.engine.IEventHandler
 import kotlinx.android.synthetic.main.live_room_activity.*
 
@@ -24,9 +24,6 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         super.onCreate(savedInstanceState)
         setContentView(R.layout.live_room_activity)
         local_preview.surfaceTextureListener = this
-
-        val videoEncoder = VideoEncoder()
-        videoEncoder.getEncoderFormat()
     }
 
     override fun onDestroy() {
@@ -50,6 +47,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         btn_pause_preview.setOnClickListener(this)
         btn_resume_preview.setOnClickListener(this)
         btn_stop_preview.setOnClickListener(this)
+        btn_scaling.setOnClickListener(this)
     }
 
     override fun onClick(view: View?) {
@@ -58,6 +56,13 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
             btn_pause_preview.id -> { videoCapture().pauseCapture() }
             btn_resume_preview.id -> { videoCapture().resumeCapture() }
             btn_stop_preview.id -> { videoCapture().stopCapture(true, false) }
+            btn_scaling.id -> {
+                val scaleAnim = ScaleAnimation(1.0F, 0.4F, 1.0F, 0.4F,
+                    local_preview.measuredWidth / 2F, local_preview.measuredHeight / 2F)
+                scaleAnim.duration = 500
+                local_preview.startAnimation(scaleAnim)
+                scaleAnim.reset()
+            }
         }
     }
 

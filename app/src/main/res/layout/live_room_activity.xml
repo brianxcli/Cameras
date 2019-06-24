@@ -4,10 +4,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <TextureView
-        android:id="@+id/local_preview"
+    <FrameLayout
+        android:id="@+id/local_preview_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="match_parent">
+        <TextureView
+            android:id="@+id/local_preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </FrameLayout>
 
     <FrameLayout
         android:id="@+id/remote_view_container"
@@ -49,5 +54,11 @@
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/btn_resume_preview"
             android:text="@string/btn_stop_capture"/>
+        <Button
+            android:id="@+id/btn_scaling"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_toEndOf="@id/btn_stop_preview"
+            android:text="@string/btn_scaling"/>
     </RelativeLayout>
 </RelativeLayout>
