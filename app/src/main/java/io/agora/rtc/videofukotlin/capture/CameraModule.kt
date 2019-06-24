@@ -53,7 +53,7 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
 
     // Used to draw on the actual display, TextureView for example
     private lateinit var eglCore : EglCore
-    private lateinit var program: ProgramTextureOES
+    private var program: ProgramTextureOES? = null
     private var eglPreviewSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private val vertexMatrix = FloatArray(16)
 
@@ -398,24 +398,24 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
             return
         }
 
-        eglPreviewSurface = eglCore.createWindowSurface(viewSurface!!)
-        eglCore.makeCurrent(eglPreviewSurface)
-        program = ProgramTextureOES()
+        if (eglPreviewSurface == EGL14.EGL_NO_SURFACE) {
+            eglPreviewSurface = eglCore.createWindowSurface(viewSurface!!)
+        }
 
-        // Update the most recent capture image
+        eglCore.makeCurrent(eglPreviewSurface)
+
+        if (program == null) {
+            // Need egl context and one surface made current
+            program = ProgramTextureOES()
+        }
+
+        // Update the most recent capture image, draw the buffer
         targetSurfaceTex.updateTexImage()
         targetSurfaceTex.getTransformMatrix(vertexMatrix)
-
-        // Draw the surface
-        targetSurfaceTex.getTransformMatrix(vertexMatrix)
-        program.draw(EglUtil.getIdentityMatrix(), vertexMatrix, targetTexId, viewWidth, viewHeight)
+        program!!.draw(EglUtil.getIdentityMatrix(), vertexMatrix, targetTexId, viewWidth, viewHeight)
 
         eglCore.swapBuffers(eglPreviewSurface)
-
-        program.release()
         eglCore.makeNothingCurrent()
-        eglCore.releaseSurface(eglPreviewSurface)
-        eglPreviewSurface = EGL14.EGL_NO_SURFACE
     }
 
     inner class EGLHandlerThread(name: String) : HandlerThread(name) {
@@ -434,6 +434,7 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
                 eglPreviewSurface = EGL14.EGL_NO_SURFACE
             }
 
+            program!!.release()
             eglCore.makeNothingCurrent()
             eglCore.release()
         }
