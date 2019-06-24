@@ -5,16 +5,17 @@ import android.content.Context
 import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
-import android.media.Image
-import android.media.ImageReader
+import android.opengl.EGL14
+import android.opengl.EGLSurface
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import android.util.Size
 import android.view.Surface
-import io.agora.rtc.videofukotlin.opengles.EglCore
+import io.agora.rtc.videofukotlin.opengles.*
 import kotlin.collections.ArrayList
 
-class VideoCapture(context : Context) {
+class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private lateinit var camera: CameraDevice
     private lateinit var captureSession: CameraCaptureSession
@@ -24,6 +25,7 @@ class VideoCapture(context : Context) {
     @Volatile private var isCapturing: Boolean = false
     private val cameraStateCallback: CameraStateCallBack = CameraStateCallBack()
     private val captureStateCallBack: CaptureStateCallBack = CaptureStateCallBack()
+    private val captureResultCallback: CaptureResultCallback = CaptureResultCallback()
     private lateinit var captureLooper: CaptureRequestLooper
 
     // Called in the session's onClosed callback, indicating whether we
@@ -34,47 +36,75 @@ class VideoCapture(context : Context) {
     // is closed. Used in the session's onClosed callback while switching cameras.
     @Volatile var shouldReopenCamera: Boolean = false
 
-    @Volatile var shouldQuitWorkingThread: Boolean = false
+    @Volatile var shouldQuitThread: Boolean = false
 
     // If the device hasn't been prepared properly, the preview request
-    // is recorded here, and the preview will be triggered if the
+    // is recorded here, and the preview will be triggered after the
     // camera opens correctly
     private var previewPendingRequest = false
 
-    // Surfaces that want to receive the capture data
-    private val displayTargetList: MutableList<Surface> = ArrayList()
+    // Define a Surface from SurfaceTexture as a preview session target.
+    // Don't confuse this preview target with the "View" that actually
+    // displays the preview images through the window system.
+    private val displayTargets: MutableList<Surface> = ArrayList()
+    private var targetTexId: Int = 0
+    private lateinit var targetSurfaceTex: SurfaceTexture
+    private var targetTextureAvailable = false
 
-    private lateinit var previewDisplay: SurfaceTexture
+    // Used to draw on the actual display, TextureView for example
+    private lateinit var eglCore : EglCore
+    private lateinit var program: ProgramTextureOES
+    private var eglPreviewSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+    private val vertexMatrix = FloatArray(16)
 
-    private lateinit var capturedImageReader: ImageReader
-    private val imageAvailableListener: OnCaptureImageAvailableListener = OnCaptureImageAvailableListener()
+    // Default capture size if not configured
+    private var width: Int = DEFAULT_CAPTURE_WIDTH
+    private var height: Int = DEFAULT_CAPTURE_HEIGHT
 
-    private var width: Int = 640
-    private var height: Int = 480
+    // The view size used to show the preview on screen
+    private var viewWidth: Int = 0
+    private var viewHeight: Int = 0
+
+    // The SurfaceTexture from TextureView
+    private var viewSurface: SurfaceTexture? = null
 
     private lateinit var handlerThread: EGLHandlerThread
     private lateinit var handler: Handler
 
     constructor(context: Context, width: Int, height: Int) : this(context) {
-        this.width = width
-        this.height = height
+        configure(width, height)
 
-        handlerThread = createWorkingThread()
+        handlerThread = createGlWorkingThread()
         handler = Handler(handlerThread.looper)
     }
 
-    private fun createWorkingThread() : EGLHandlerThread {
+    private fun createGlWorkingThread() : EGLHandlerThread {
         val thread = EGLHandlerThread(TAG)
         thread.start()
         return thread
     }
 
+    /**
+     * Set the capture target width and height which must be chosen carefully
+     * before preview starts. The size of the captured images may differ
+     * from what has been set because the hardware may not support. The
+     * result size will be equal to or the least largest size than desired.
+     * It is recommended that the width is no less than the height.
+     */
+    fun configure(width: Int, height: Int) {
+        if (cameraOpened && isCapturing) {
+            Log.w(TAG, "Cannot set the capture size when previewing")
+            return
+        }
+
+        this.width = width
+        this.height = height
+    }
+
     companion object CameraUtil {
         const val DEFAULT_CAPTURE_WIDTH = 640
         const val DEFAULT_CAPTURE_HEIGHT = 480
-        const val PREVIEW_SURFACE_INDEX: Int = 0
-        const val MAX_IMAGE_READER_SIZE = 1
-        const val TAG: String = "VideoCapture"
+        const val TAG: String = "CameraModule"
         const val LENS_ID_FRONT: String = CameraCharacteristics.LENS_FACING_FRONT.toString()
         const val LENS_ID_BACK: String = CameraCharacteristics.LENS_FACING_BACK.toString()
         const val DEFAULT_CAMERA_ID: String = LENS_ID_BACK
@@ -94,18 +124,36 @@ class VideoCapture(context : Context) {
         openCamera(currentCameraId)
     }
 
-    /**
-     * Set the display target as a SurfaceTexture, must be
-     * called before starting camera preview
-     */
-    fun setPreviewDisplay(preview: SurfaceTexture?) {
-        handler.post{ previewDisplay = preview!! }
+    fun startPreview() {
+        handler.post{
+            if (::camera.isInitialized && cameraOpened && !isCapturing) {
+                createCaptureSession()
+            } else {
+                previewPendingRequest = true
+            }
+        }
     }
 
-    private fun createPreviewSurface() : Surface {
+    private fun createCaptureSession() {
+        preparePreviewTargets()
+        camera.createCaptureSession(displayTargets, captureStateCallBack, handler)
+    }
+
+    private fun preparePreviewTargets() {
+        if (displayTargets.isNotEmpty()) {
+            displayTargets.clear()
+        }
+
+        // It should be guaranteed that we are in an OpenGL context thread.
+        targetTexId = eglCore.createTextureOES()
+        targetSurfaceTex = SurfaceTexture(targetTexId)
+        targetSurfaceTex.setOnFrameAvailableListener(this)
+
+        // The size of the captured images
         val size: Size = findOptimalBufferSize(width, height)
-        previewDisplay.setDefaultBufferSize(size.width, size.height)
-        return Surface(previewDisplay)
+        targetSurfaceTex.setDefaultBufferSize(size.width, size.height)
+
+        displayTargets.add(Surface(targetSurfaceTex))
     }
 
     /**
@@ -143,39 +191,9 @@ class VideoCapture(context : Context) {
         return if (found) curSize else Size(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
     }
 
-    private fun createImageReader(size: Size) {
-        capturedImageReader = ImageReader.newInstance(size.width,
-            size.height, ImageFormat.YUV_420_888, MAX_IMAGE_READER_SIZE)
-        capturedImageReader.setOnImageAvailableListener(imageAvailableListener, handler)
-    }
-
-    private fun getDisplayTargetList() {
-        if (displayTargetList.isNotEmpty()) {
-            displayTargetList.clear()
-        }
-
-        // The size of the captured images
-        val size: Size = findOptimalBufferSize(width, height)
-
-        // keep the preview display the first in the list
-        displayTargetList.add(PREVIEW_SURFACE_INDEX, createPreviewSurface())
-
-        createImageReader(size)
-        displayTargetList.add(capturedImageReader.surface)
-    }
-
-    private fun createCaptureSession() {
-        getDisplayTargetList()
-        camera.createCaptureSession(displayTargetList, captureStateCallBack, handler)
-    }
-
-    fun startPreview() {
-        handler.post{
-            if (::camera.isInitialized && cameraOpened && !isCapturing) {
-                createCaptureSession()
-            } else {
-                previewPendingRequest = true
-            }
+    override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
+        if (!targetTextureAvailable) {
+            targetTextureAvailable = true
         }
     }
 
@@ -201,24 +219,19 @@ class VideoCapture(context : Context) {
 
     private fun closeSession(shouldCloseCamera: Boolean, quitWorkingThread: Boolean) {
         shouldCloseCurrentCamera = shouldCloseCamera
-        shouldQuitWorkingThread = quitWorkingThread
+        shouldQuitThread = quitWorkingThread
         captureSession.close()
     }
 
     private fun closeCamera() {
         camera.close()
-        recycleTargets()
-    }
-
-    private fun recycleTargets() {
-        capturedImageReader.close()
     }
 
     fun switchCamera() {
         shouldReopenCamera = true
-        shouldQuitWorkingThread = false
+        shouldQuitThread = false
         currentCameraId = switchCameraId()
-        stopCapture(true, shouldQuitWorkingThread)
+        stopCapture(true, shouldQuitThread)
     }
 
     private fun switchCameraId() : String {
@@ -273,11 +286,11 @@ class VideoCapture(context : Context) {
 
         private fun startCapture(session: CameraCaptureSession) {
             val builder: CaptureRequest.Builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-            displayTargetList.forEach { surface -> builder.addTarget(surface) }
+            displayTargets.forEach { surface -> builder.addTarget(surface) }
             captureRequest = builder.build()
 
             captureLooper = CaptureRequestLooper(session, captureRequest, handler)
-            captureLooper.setCaptureFrameRate(60)
+            captureLooper.setCaptureFrameRate(24)
             captureLooper.loop()
         }
 
@@ -299,9 +312,9 @@ class VideoCapture(context : Context) {
                 shouldReopenCamera = false
             }
 
-            if (shouldQuitWorkingThread) {
+            if (shouldQuitThread) {
                 handler.post{ handlerThread.quitSafely() }
-                shouldQuitWorkingThread = false
+                shouldQuitThread = false
             }
         }
 
@@ -311,9 +324,11 @@ class VideoCapture(context : Context) {
         }
     }
 
+    // A preview capture timer using Handler. Keep and change the capture
+    // interval as we want rather than the default repeated capture frequency.
     inner class CaptureRequestLooper(private var session: CameraCaptureSession,
-                                     private var request: CaptureRequest,
-                                     private val handler: Handler) {
+                     private var request: CaptureRequest, private val handler: Handler) {
+
         // default capture frame rate is 15
         private var interval: Long = 66
 
@@ -351,7 +366,7 @@ class VideoCapture(context : Context) {
         inner class CaptureRunnable : Runnable {
             override fun run() {
                 if (cameraOpened) {
-                    session.capture(request, null, handler)
+                    session.capture(request, captureResultCallback, handler)
                 }
 
                 if (!paused) {
@@ -361,35 +376,70 @@ class VideoCapture(context : Context) {
         }
     }
 
-    inner class OnCaptureImageAvailableListener : ImageReader.OnImageAvailableListener {
-        override fun onImageAvailable(reader: ImageReader?) {
-            val image: Image = reader!!.acquireLatestImage()
-            if (image.format == ImageFormat.YUV_420_888) {
-                // assembly a frame using the planes contained in the image
-                // and queue it into the working thread maintaining EGL context
-            }
-
-            image.close()
+    fun setDisplayView(surface: SurfaceTexture?, width: Int, height: Int) {
+        handler.post {
+            viewSurface = surface
+            viewWidth = width
+            viewHeight = height
         }
     }
 
-    inner class EGLHandlerThread(name: String) : HandlerThread(name) {
-        private lateinit var eglCore : EglCore
+    inner class CaptureResultCallback : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(session: CameraCaptureSession,
+                        request: CaptureRequest, result: TotalCaptureResult) {
+            drawFrame()
+        }
+    }
 
-        init {
-            createEgl()
+    private fun drawFrame() {
+        if (!eglCore.initialized() ||
+                viewSurface == null ||
+            !targetTextureAvailable) {
+            return
         }
 
-        private fun createEgl() {
+        eglPreviewSurface = eglCore.createWindowSurface(viewSurface!!)
+        eglCore.makeCurrent(eglPreviewSurface)
+        program = ProgramTextureOES()
+
+        // Update the most recent capture image
+        targetSurfaceTex.updateTexImage()
+        targetSurfaceTex.getTransformMatrix(vertexMatrix)
+
+        // Draw the surface
+        targetSurfaceTex.getTransformMatrix(vertexMatrix)
+        program.draw(EglUtil.getIdentityMatrix(), vertexMatrix, targetTexId, viewWidth, viewHeight)
+
+        eglCore.swapBuffers(eglPreviewSurface)
+
+        program.release()
+        eglCore.makeNothingCurrent()
+        eglCore.releaseSurface(eglPreviewSurface)
+        eglPreviewSurface = EGL14.EGL_NO_SURFACE
+    }
+
+    inner class EGLHandlerThread(name: String) : HandlerThread(name) {
+        override fun run() {
+            createEglContext()
+            super.run()
+        }
+
+        private fun createEglContext() {
             eglCore = EglCore()
         }
 
-        private fun recycleEgl() {
+        private fun release() {
+            if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
+                eglCore.releaseSurface(eglPreviewSurface)
+                eglPreviewSurface = EGL14.EGL_NO_SURFACE
+            }
+
+            eglCore.makeNothingCurrent()
             eglCore.release()
         }
 
         override fun quitSafely(): Boolean {
-            recycleEgl()
+            release()
             return super.quitSafely()
         }
     }

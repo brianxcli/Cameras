@@ -3,7 +3,7 @@ package io.agora.rtc.videofukotlin.ui.activities
 import android.os.Bundle
 import io.agora.rtc.RtcEngine
 import io.agora.rtc.videofukotlin.R
-import io.agora.rtc.videofukotlin.capture.VideoCapture
+import io.agora.rtc.videofukotlin.capture.CameraModule
 import io.agora.rtc.videofukotlin.engine.IEventHandler
 import io.agora.rtc.videofukotlin.engine.RtcEventHandler
 
@@ -19,16 +19,16 @@ abstract class RTCActivity : BaseActivity() {
         eventHandler.addHandler(handler)
     }
 
-    private val defaultWidth: Int = 640
-    private val defaultHeight: Int = 480
+    private val defaultWidth: Int = 1280
+    private val defaultHeight: Int = 720
 
-    private lateinit var videoCapture: VideoCapture
+    private lateinit var cameraModule: CameraModule
 
-    protected fun videoCapture(): VideoCapture = videoCapture
+    protected fun videoCapture(): CameraModule = cameraModule
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        videoCapture = VideoCapture(applicationContext, defaultWidth, defaultHeight)
+        cameraModule = CameraModule(applicationContext, defaultWidth, defaultHeight)
     }
 
     override fun onDestroy() {

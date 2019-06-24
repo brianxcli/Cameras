@@ -37,4 +37,12 @@ abstract class EglSurfaceBase(private val eglCore: EglCore) {
     protected fun release() {
         releaseEglSurface()
     }
+
+    fun getWidth() : Int {
+        return width
+    }
+
+    fun getHeight() : Int {
+        return height
+    }
 }

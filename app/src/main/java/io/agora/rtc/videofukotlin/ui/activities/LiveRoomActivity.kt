@@ -13,6 +13,7 @@ import io.agora.rtc.video.VideoEncoderConfiguration
 import io.agora.rtc.video.VideoEncoderConfiguration.STANDARD_BITRATE
 import io.agora.rtc.video.VideoEncoderConfiguration.VD_640x480
 import io.agora.rtc.videofukotlin.R
+import io.agora.rtc.videofukotlin.encoder.VideoEncoder
 import io.agora.rtc.videofukotlin.engine.IEventHandler
 import kotlinx.android.synthetic.main.live_room_activity.*
 
@@ -23,6 +24,9 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         super.onCreate(savedInstanceState)
         setContentView(R.layout.live_room_activity)
         local_preview.surfaceTextureListener = this
+
+        val videoEncoder = VideoEncoder()
+        videoEncoder.getEncoderFormat()
     }
 
     override fun onDestroy() {
@@ -55,10 +59,6 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
             btn_resume_preview.id -> { videoCapture().resumeCapture() }
             btn_stop_preview.id -> { videoCapture().stopCapture(true, false) }
         }
-    }
-
-    private fun initPreview(surfaceTexture: SurfaceTexture?) {
-        videoCapture().setPreviewDisplay(surfaceTexture)
     }
 
     private fun configRtcEngine() {
@@ -97,7 +97,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture?, width: Int, height: Int) {
-
+        videoCapture().setDisplayView(surface!!, width, height)
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture?) {
@@ -111,6 +111,8 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture?, width: Int, height: Int) {
-        initPreview(surface)
+        // It is the right time we call back to camera module to set up
+        // the preview display.
+        videoCapture().setDisplayView(surface!!, width, height)
     }
 }
