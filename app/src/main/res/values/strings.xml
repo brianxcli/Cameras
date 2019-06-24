@@ -6,6 +6,6 @@
     <string name="btn_switch_camera">Switch</string>
     <string name="btn_pause_capture">Pause</string>
     <string name="btn_resume_capture">Resume</string>
-    <string name="btn_stop_capture">Stop</string>
+    <string name="btn_rotate">Rotate</string>
     <string name="btn_scaling">Scale</string>
 </resources>

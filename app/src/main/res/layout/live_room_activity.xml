@@ -49,16 +49,16 @@
             android:layout_toEndOf="@id/btn_pause_preview"
             android:text="@string/btn_resume_capture"/>
         <Button
-            android:id="@+id/btn_stop_preview"
+            android:id="@+id/btn_rotate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/btn_resume_preview"
-            android:text="@string/btn_stop_capture"/>
+            android:text="@string/btn_rotate"/>
         <Button
             android:id="@+id/btn_scaling"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_toEndOf="@id/btn_stop_preview"
+            android:layout_toEndOf="@id/btn_rotate"
             android:text="@string/btn_scaling"/>
     </RelativeLayout>
 </RelativeLayout>

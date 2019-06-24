@@ -1,5 +1,6 @@
 package io.agora.rtc.videofukotlin.ui.activities
 
+import android.animation.ObjectAnimator
 import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.util.Log
@@ -46,7 +47,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         btn_switch_camera.setOnClickListener(this)
         btn_pause_preview.setOnClickListener(this)
         btn_resume_preview.setOnClickListener(this)
-        btn_stop_preview.setOnClickListener(this)
+        btn_rotate.setOnClickListener(this)
         btn_scaling.setOnClickListener(this)
     }
 
@@ -55,7 +56,13 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
             btn_switch_camera.id -> { videoCapture().switchCamera() }
             btn_pause_preview.id -> { videoCapture().pauseCapture() }
             btn_resume_preview.id -> { videoCapture().resumeCapture() }
-            btn_stop_preview.id -> { videoCapture().stopCapture(true, false) }
+            btn_rotate.id -> {
+                ObjectAnimator.ofFloat(local_preview, "rotationY", 0F, 360F).apply {
+                    duration = 2000
+                    start()
+                }
+            }
+
             btn_scaling.id -> {
                 val scaleAnim = ScaleAnimation(1.0F, 0.4F, 1.0F, 0.4F,
                     local_preview.measuredWidth / 2F, local_preview.measuredHeight / 2F)
