@@ -127,7 +127,7 @@ class ProgramTextureOES {
         // Select the texture slot position to use. For the legacy reasons,
         // the active texture unit must be specified for rendering.
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
 
         // The glUniformX functions specify the values of uniform
         // variables for the current program object.
