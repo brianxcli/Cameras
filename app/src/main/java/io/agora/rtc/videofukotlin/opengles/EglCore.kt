@@ -105,8 +105,8 @@ class EglCore {
             // number plus 1. Every time the display is terminated,
             // it simply reduces the ref number until it becomes 1
             // when the actual display connection will be disconnected.
-            EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            makeNothingCurrent()
+
             EGL14.eglDestroyContext(eglDisplay, eglContext)
             EGL14.eglReleaseThread()
             EGL14.eglTerminate(eglDisplay)

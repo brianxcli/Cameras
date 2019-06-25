@@ -119,6 +119,8 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture?): Boolean {
         // if the Activity exits, this method will be called AFTER the Activity's
         // onDestroy() is called.
+        Log.i(TAG, "onSurfaceTextureDestroyed")
+        videoCapture().setDisplayView(null, 0, 0)
         return true
     }
 

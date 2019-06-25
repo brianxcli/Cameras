@@ -9,13 +9,15 @@ import android.opengl.EGL14
 import android.opengl.EGLSurface
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
+import android.os.Message
 import android.util.Log
 import android.util.Size
 import android.view.Surface
 import io.agora.rtc.videofukotlin.opengles.*
 import kotlin.collections.ArrayList
 
-class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener {
+class CameraModule(context : Context) {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private lateinit var camera: CameraDevice
     private lateinit var captureSession: CameraCaptureSession
@@ -49,7 +51,6 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
     private val displayTargets: MutableList<Surface> = ArrayList()
     private var targetTexId: Int = 0
     private lateinit var targetSurfaceTex: SurfaceTexture
-    private var targetTextureAvailable = false
 
     // Used to draw on the actual display, TextureView for example
     private lateinit var eglCore : EglCore
@@ -73,9 +74,8 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
 
     constructor(context: Context, width: Int, height: Int) : this(context) {
         configure(width, height)
-
         handlerThread = createGlWorkingThread()
-        handler = Handler(handlerThread.looper)
+        handler = EGLHandler(handlerThread.looper)
     }
 
     private fun createGlWorkingThread() : EGLHandlerThread {
@@ -105,6 +105,7 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
         const val DEFAULT_CAPTURE_WIDTH = 640
         const val DEFAULT_CAPTURE_HEIGHT = 480
         const val TAG: String = "CameraModule"
+        const val MSG_QUIT_THREAD = 1
         const val LENS_ID_FRONT: String = CameraCharacteristics.LENS_FACING_FRONT.toString()
         const val LENS_ID_BACK: String = CameraCharacteristics.LENS_FACING_BACK.toString()
         const val DEFAULT_CAMERA_ID: String = LENS_ID_BACK
@@ -147,7 +148,6 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
         // It should be guaranteed that we are in an OpenGL context thread.
         targetTexId = eglCore.createTextureOES()
         targetSurfaceTex = SurfaceTexture(targetTexId)
-        targetSurfaceTex.setOnFrameAvailableListener(this)
 
         // The size of the captured images
         val size: Size = findOptimalBufferSize(width, height)
@@ -191,17 +191,8 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
         return if (found) curSize else Size(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
     }
 
-    override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
-        if (!targetTextureAvailable) {
-            targetTextureAvailable = true
-        }
-    }
-
     fun pauseCapture() {
-        // abandons current in-flight capture requests as
-        // fast as possible
         if (cameraOpened && isCapturing) {
-            captureSession.abortCaptures()
             captureLooper.pause()
         }
     }
@@ -218,8 +209,15 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
     }
 
     private fun closeSession(shouldCloseCamera: Boolean, quitWorkingThread: Boolean) {
+        Log.d(TAG, "close capture session")
         shouldCloseCurrentCamera = shouldCloseCamera
         shouldQuitThread = quitWorkingThread
+
+        // Mi Note LTE (android 6.0) may throw a warning saying a dead thread
+        // using handler. But according to the open source code, since we don't
+        // set any listener and no handler will be created and thus no handler
+        // can be used to send any message. Xiao Mi must have been modified the
+        // code and throw this warning in a wrong condition. We just ignore that.
         captureSession.close()
     }
 
@@ -313,7 +311,7 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
             }
 
             if (shouldQuitThread) {
-                handler.post{ handlerThread.quitSafely() }
+                handler.post{ handlerThread.quitThread() }
                 shouldQuitThread = false
             }
         }
@@ -377,10 +375,15 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
     }
 
     fun setDisplayView(surface: SurfaceTexture?, width: Int, height: Int) {
-        handler.post {
-            viewSurface = surface
-            viewWidth = width
-            viewHeight = height
+        if (handlerThread.isAlive) {
+            // The lifecycle callbacks of a surface texture is not guaranteed
+            // to be called at a certain time, and we respond to it only
+            // when the background handler thread is running.
+            handler.post {
+                viewSurface = surface
+                viewWidth = width
+                viewHeight = height
+            }
         }
     }
 
@@ -392,9 +395,7 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
     }
 
     private fun drawFrame() {
-        if (!eglCore.initialized() ||
-                viewSurface == null ||
-            !targetTextureAvailable) {
+        if (!eglCore.initialized() || viewSurface == null) {
             return
         }
 
@@ -412,10 +413,14 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
         // Update the most recent capture image, draw the buffer
         targetSurfaceTex.updateTexImage()
         targetSurfaceTex.getTransformMatrix(vertexMatrix)
+
         program!!.draw(EglUtil.getIdentityMatrix(), vertexMatrix, targetTexId, viewWidth, viewHeight)
 
-        eglCore.swapBuffers(eglPreviewSurface)
-        eglCore.makeNothingCurrent()
+        if (eglCore.isCurrent(eglPreviewSurface)) {
+            eglCore.swapBuffers(eglPreviewSurface)
+        }
+
+        // Don't remove context here by making nothing current.
     }
 
     inner class EGLHandlerThread(name: String) : HandlerThread(name) {
@@ -428,20 +433,36 @@ class CameraModule(context : Context) : SurfaceTexture.OnFrameAvailableListener 
             eglCore = EglCore()
         }
 
-        private fun release() {
+        fun release() {
+            Log.i(TAG, "EGLThread release")
+
+            // Program needs the current context to release itself
+            program!!.release()
+
             if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
                 eglCore.releaseSurface(eglPreviewSurface)
                 eglPreviewSurface = EGL14.EGL_NO_SURFACE
             }
 
-            program!!.release()
-            eglCore.makeNothingCurrent()
             eglCore.release()
         }
 
-        override fun quitSafely(): Boolean {
-            release()
-            return super.quitSafely()
+        fun quitThread(): Boolean {
+            handler.sendEmptyMessage(MSG_QUIT_THREAD)
+            return true
+        }
+    }
+
+    inner class EGLHandler(looper: Looper) : Handler(looper) {
+        override fun handleMessage(msg: Message?) {
+            when (msg!!.what) {
+                MSG_QUIT_THREAD -> {
+                    if (handlerThread.isAlive) {
+                        handlerThread.release()
+                        handlerThread.quitSafely()
+                    }
+                }
+            }
         }
     }
 }
