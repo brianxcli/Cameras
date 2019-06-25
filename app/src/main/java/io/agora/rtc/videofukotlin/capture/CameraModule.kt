@@ -28,7 +28,6 @@ class CameraModule(context : Context) {
     private val cameraStateCallback: CameraStateCallBack = CameraStateCallBack()
     private val captureStateCallBack: CaptureStateCallBack = CaptureStateCallBack()
     private val captureResultCallback: CaptureResultCallback = CaptureResultCallback()
-    private lateinit var captureLooper: CaptureRequestLooper
 
     // Called in the session's onClosed callback, indicating whether we
     // want to close the current active camera device as well
@@ -191,19 +190,9 @@ class CameraModule(context : Context) {
         return if (found) curSize else Size(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
     }
 
-    fun pauseCapture() {
-        if (cameraOpened && isCapturing) {
-            captureLooper.pause()
-        }
-    }
-
-    fun resumeCapture() {
-        captureLooper.resume()
-    }
-
     fun stopCapture(shouldCloseCurrentCamera: Boolean, quitWorkingThread: Boolean) {
         if (cameraOpened && isCapturing) {
-            pauseCapture()
+            captureSession.abortCaptures()
             closeSession(shouldCloseCurrentCamera, quitWorkingThread)
         }
     }
@@ -270,7 +259,6 @@ class CameraModule(context : Context) {
     inner class CaptureStateCallBack : CameraCaptureSession.StateCallback() {
         override fun onConfigureFailed(session: CameraCaptureSession) {
             // the session cannot be configured as requested
-            // captureSession.abortCaptures()
         }
 
         override fun onConfigured(session: CameraCaptureSession) {
@@ -286,10 +274,7 @@ class CameraModule(context : Context) {
             val builder: CaptureRequest.Builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
             displayTargets.forEach { surface -> builder.addTarget(surface) }
             captureRequest = builder.build()
-
-            captureLooper = CaptureRequestLooper(session, captureRequest, handler)
-            captureLooper.setCaptureFrameRate(24)
-            captureLooper.loop()
+            session.setRepeatingRequest(captureRequest, captureResultCallback, handler)
         }
 
         override fun onClosed(session: CameraCaptureSession) {
@@ -322,58 +307,6 @@ class CameraModule(context : Context) {
         }
     }
 
-    // A preview capture timer using Handler. Keep and change the capture
-    // interval as we want rather than the default repeated capture frequency.
-    inner class CaptureRequestLooper(private var session: CameraCaptureSession,
-                     private var request: CaptureRequest, private val handler: Handler) {
-
-        // default capture frame rate is 15
-        private var interval: Long = 66
-
-        @Volatile private var paused: Boolean = false
-
-        private val callback: CaptureRunnable = CaptureRunnable()
-
-        /**
-         * The actual frame rate may be less than desired due to the
-         * capability of the camera hardware
-         */
-        fun setCaptureFrameRate(fps: Int) {
-            // set to default if the fps is out of the valid range
-            handler.post{ interval = if (fps <= 0 || fps > 30) 66 else (1000L / fps) }
-        }
-
-        fun loop() {
-            handler.postDelayed(callback, interval)
-        }
-
-        fun pause() {
-            if (cameraOpened && !paused) {
-                paused = true
-                handler.removeCallbacks(callback)
-            }
-        }
-
-        fun resume() {
-            if (cameraOpened && paused) {
-                paused = false
-                loop()
-            }
-        }
-
-        inner class CaptureRunnable : Runnable {
-            override fun run() {
-                if (cameraOpened) {
-                    session.capture(request, captureResultCallback, handler)
-                }
-
-                if (!paused) {
-                    handler.postDelayed(callback, interval)
-                }
-            }
-        }
-    }
-
     fun setDisplayView(surface: SurfaceTexture?, width: Int, height: Int) {
         if (handlerThread.isAlive) {
             // The lifecycle callbacks of a surface texture is not guaranteed
@@ -390,7 +323,9 @@ class CameraModule(context : Context) {
     inner class CaptureResultCallback : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession,
                         request: CaptureRequest, result: TotalCaptureResult) {
-            drawFrame()
+            if (cameraOpened && isCapturing) {
+                drawFrame()
+            }
         }
     }
 

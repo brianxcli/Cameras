@@ -37,22 +37,16 @@
             android:layout_alignParentStart="true"
             android:text="@string/btn_switch_camera"/>
         <Button
-            android:id="@+id/btn_pause_preview"
+            android:id="@+id/btn_close"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/btn_switch_camera"
-            android:text="@string/btn_pause_capture"/>
-        <Button
-            android:id="@+id/btn_resume_preview"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_toEndOf="@id/btn_pause_preview"
-            android:text="@string/btn_resume_capture"/>
+            android:text="@string/btn_close"/>
         <Button
             android:id="@+id/btn_rotate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_toEndOf="@id/btn_resume_preview"
+            android:layout_toEndOf="@id/btn_close"
             android:text="@string/btn_rotate"/>
         <Button
             android:id="@+id/btn_scaling"

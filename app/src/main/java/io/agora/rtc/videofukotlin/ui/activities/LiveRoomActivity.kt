@@ -45,8 +45,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
 
     private fun initUI() {
         btn_switch_camera.setOnClickListener(this)
-        btn_pause_preview.setOnClickListener(this)
-        btn_resume_preview.setOnClickListener(this)
+        btn_close.setOnClickListener(this)
         btn_rotate.setOnClickListener(this)
         btn_scaling.setOnClickListener(this)
     }
@@ -54,8 +53,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     override fun onClick(view: View?) {
         when (view!!.id) {
             btn_switch_camera.id -> { videoCapture().switchCamera() }
-            btn_pause_preview.id -> { videoCapture().pauseCapture() }
-            btn_resume_preview.id -> { videoCapture().resumeCapture() }
+            btn_close.id -> { finish() }
             btn_rotate.id -> {
                 ObjectAnimator.ofFloat(local_preview, "rotationY", 0F, 360F).apply {
                     duration = 2000
