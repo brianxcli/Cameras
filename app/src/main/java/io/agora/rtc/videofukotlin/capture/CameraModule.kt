@@ -8,16 +8,13 @@ import android.hardware.camera2.*
 import android.opengl.EGL14
 import android.opengl.EGLSurface
 import android.os.Handler
-import android.os.HandlerThread
-import android.os.Looper
-import android.os.Message
 import android.util.Log
 import android.util.Size
 import android.view.Surface
 import io.agora.rtc.videofukotlin.opengles.*
 import kotlin.collections.ArrayList
 
-class CameraModule(context : Context) {
+class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private lateinit var camera: CameraDevice
     private lateinit var captureSession: CameraCaptureSession
@@ -68,19 +65,12 @@ class CameraModule(context : Context) {
     // The SurfaceTexture from TextureView
     private var viewSurface: SurfaceTexture? = null
 
-    private lateinit var handlerThread: EGLHandlerThread
     private lateinit var handler: Handler
 
     constructor(context: Context, width: Int, height: Int) : this(context) {
         configure(width, height)
-        handlerThread = createGlWorkingThread()
-        handler = EGLHandler(handlerThread.looper)
-    }
-
-    private fun createGlWorkingThread() : EGLHandlerThread {
-        val thread = EGLHandlerThread(TAG)
-        thread.start()
-        return thread
+        start()
+        handler = getHandler()
     }
 
     /**
@@ -104,7 +94,6 @@ class CameraModule(context : Context) {
         const val DEFAULT_CAPTURE_WIDTH = 640
         const val DEFAULT_CAPTURE_HEIGHT = 480
         const val TAG: String = "CameraModule"
-        const val MSG_QUIT_THREAD = 1
         const val LENS_ID_FRONT: String = CameraCharacteristics.LENS_FACING_FRONT.toString()
         const val LENS_ID_BACK: String = CameraCharacteristics.LENS_FACING_BACK.toString()
         const val DEFAULT_CAMERA_ID: String = LENS_ID_BACK
@@ -296,7 +285,7 @@ class CameraModule(context : Context) {
             }
 
             if (shouldQuitThread) {
-                handler.post{ handlerThread.quitThread() }
+                handler.post{ this@CameraModule.quit() }
                 shouldQuitThread = false
             }
         }
@@ -308,7 +297,7 @@ class CameraModule(context : Context) {
     }
 
     fun setDisplayView(surface: SurfaceTexture?, width: Int, height: Int) {
-        if (handlerThread.isAlive) {
+        if (this@CameraModule.isAlive) {
             // The lifecycle callbacks of a surface texture is not guaranteed
             // to be called at a certain time, and we respond to it only
             // when the background handler thread is running.
@@ -358,46 +347,29 @@ class CameraModule(context : Context) {
         // Don't remove context here by making nothing current.
     }
 
-    inner class EGLHandlerThread(name: String) : HandlerThread(name) {
-        override fun run() {
-            createEglContext()
-            super.run()
-        }
-
-        private fun createEglContext() {
-            eglCore = EglCore()
-        }
-
-        fun release() {
-            Log.i(TAG, "EGLThread release")
-
-            // Program needs the current context to release itself
-            program!!.release()
-
-            if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
-                eglCore.releaseSurface(eglPreviewSurface)
-                eglPreviewSurface = EGL14.EGL_NO_SURFACE
-            }
-
-            eglCore.release()
-        }
-
-        fun quitThread(): Boolean {
-            handler.sendEmptyMessage(MSG_QUIT_THREAD)
-            return true
-        }
+    /**
+     * Creates the OpenGLES context here, giving the handler thread
+     * the ability to do texture rendering
+     */
+    override fun onCreateEglContext() {
+        Log.d(TAG, "create EGLThread")
+        eglCore = EglCore()
     }
 
-    inner class EGLHandler(looper: Looper) : Handler(looper) {
-        override fun handleMessage(msg: Message?) {
-            when (msg!!.what) {
-                MSG_QUIT_THREAD -> {
-                    if (handlerThread.isAlive) {
-                        handlerThread.release()
-                        handlerThread.quitSafely()
-                    }
-                }
-            }
+    /**
+     * Release OpenGLES context
+     */
+    override fun onReleaseEglContext() {
+        Log.i(TAG, "release EGLThread")
+
+        // Program needs the current context to release itself
+        program!!.release()
+
+        if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
+            eglCore.releaseSurface(eglPreviewSurface)
+            eglPreviewSurface = EGL14.EGL_NO_SURFACE
         }
+
+        eglCore.release()
     }
 }
