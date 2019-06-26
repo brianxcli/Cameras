@@ -150,29 +150,33 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
     }
 
     /**
-     * Find the optimal buffer size according to the size
-     * that we want the captured image to be
-     * @param width
-     * @param height
+     * Find the most suitable capture resolution according to the width
+     * and height given.
+     * The hardware supports only several predefined capture sizes, we
+     * choose the least size that is larger than desired.
+     * Note that the supported sizes are all horizontal. If the input size
+     * is vertical, we will take it as a horizontal size with a rotation of
+     * 90 degrees, in order to crop (if needed) as little as possible
+     * when displayed in a view
      */
     private fun findOptimalBufferSize(width: Int, height: Int) : Size {
-        // The default buffer size of a Surface as a target to a
-        // capture request must be one of the supported values
-        // that can be acquired from the camera characteristic.
+        var w = width
+        var h = height
+
+        if (width < height) {
+            w = height
+            h = width
+        }
+
+        var curSize = Size(10000, 10000)
+        val target = Size(w, h)
+
         val characteristic: CameraCharacteristics =
             cameraManager.getCameraCharacteristics(currentCameraId)
         val sizes: Array<out Size> =
             characteristic[CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP]!!
                 .getOutputSizes(ImageFormat.JPEG)
 
-        // The input width and height may not be supported.
-        // We want to pick one available size, such that the
-        // captured image is large enough and will be cropped as
-        // little as possible to what we actually need.
-
-        // Note the width is usually larger than the height here
-        var curSize = Size(10000, 10000)
-        val target = Size(width, height)
         var found = false
         sizes.forEach {
             if (it.equalOrLarger(target) && curSize.equalOrLarger(it)) {
