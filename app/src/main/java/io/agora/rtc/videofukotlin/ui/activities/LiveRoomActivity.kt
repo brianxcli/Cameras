@@ -15,12 +15,15 @@ import io.agora.rtc.video.VideoEncoderConfiguration
 import io.agora.rtc.video.VideoEncoderConfiguration.STANDARD_BITRATE
 import io.agora.rtc.video.VideoEncoderConfiguration.VD_640x480
 import io.agora.rtc.videofukotlin.R
+import io.agora.rtc.videofukotlin.capture.AgoraCameraCallback
 import io.agora.rtc.videofukotlin.engine.IEventHandler
 import kotlinx.android.synthetic.main.live_room_activity.*
 
 private const val TAG : String = "LiveRoomActivity"
 
-class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener, View.OnClickListener {
+class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener,
+    View.OnClickListener, AgoraCameraCallback {
+
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.live_room_activity)
@@ -39,8 +42,8 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         super.onAllPermissionsGranted()
         // configRtcEngine()
         initUI()
-        videoCapture().openCamera()
-        videoCapture().startPreview()
+        agoraCamera().openCamera()
+        agoraCamera().startPreview()
     }
 
     private fun initUI() {
@@ -48,11 +51,13 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         btn_close.setOnClickListener(this)
         btn_rotate.setOnClickListener(this)
         btn_scaling.setOnClickListener(this)
+
+        agoraCamera().addAgoraCameraCallback(this)
     }
 
     override fun onClick(view: View?) {
         when (view!!.id) {
-            btn_switch_camera.id -> { videoCapture().switchCamera() }
+            btn_switch_camera.id -> { agoraCamera().switchCamera() }
             btn_close.id -> { finish() }
             btn_rotate.id -> {
                 ObjectAnimator.ofFloat(local_preview, "rotationY", 0F, 360F).apply {
@@ -107,7 +112,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture?, width: Int, height: Int) {
-        videoCapture().setDisplayView(surface!!, width, height)
+        agoraCamera().setDisplayView(surface!!, width, height)
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture?) {
@@ -118,13 +123,20 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         // if the Activity exits, this method will be called AFTER the Activity's
         // onDestroy() is called.
         Log.i(TAG, "onSurfaceTextureDestroyed")
-        videoCapture().setDisplayView(null, 0, 0)
+        agoraCamera().setDisplayView(null, 0, 0)
         return true
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture?, width: Int, height: Int) {
         // It is the right time we call back to camera module to set up
         // the preview display.
-        videoCapture().setDisplayView(surface!!, width, height)
+        agoraCamera().setDisplayView(surface!!, width, height)
+    }
+
+    override fun onFPS(fps: Int) {
+        val text = "FPS:$fps"
+        runOnUiThread {
+            fps_view.text = text
+        }
     }
 }

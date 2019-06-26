@@ -14,7 +14,7 @@ import android.view.Surface
 import io.agora.rtc.videofukotlin.opengles.*
 import kotlin.collections.ArrayList
 
-class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
+class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private lateinit var camera: CameraDevice
     private lateinit var captureSession: CameraCaptureSession
@@ -67,6 +67,11 @@ class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
 
     private lateinit var handler: Handler
 
+    // Used to calculate and report FPS at the moment
+    private var drawFrameCount = 0
+    private var lastReportTime = -1L
+    private var agoraCameraCallback: AgoraCameraCallback? = null
+
     constructor(context: Context, width: Int, height: Int) : this(context) {
         configure(width, height)
         start()
@@ -93,7 +98,7 @@ class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
     companion object CameraUtil {
         const val DEFAULT_CAPTURE_WIDTH = 640
         const val DEFAULT_CAPTURE_HEIGHT = 480
-        const val TAG: String = "CameraModule"
+        const val TAG: String = "AgoraCamera"
         const val LENS_ID_FRONT: String = CameraCharacteristics.LENS_FACING_FRONT.toString()
         const val LENS_ID_BACK: String = CameraCharacteristics.LENS_FACING_BACK.toString()
         const val DEFAULT_CAMERA_ID: String = LENS_ID_BACK
@@ -285,7 +290,7 @@ class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
             }
 
             if (shouldQuitThread) {
-                handler.post{ this@CameraModule.quit() }
+                handler.post{ this@AgoraCamera.quit() }
                 shouldQuitThread = false
             }
         }
@@ -297,7 +302,7 @@ class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
     }
 
     fun setDisplayView(surface: SurfaceTexture?, width: Int, height: Int) {
-        if (this@CameraModule.isAlive) {
+        if (this@AgoraCamera.isAlive) {
             // The lifecycle callbacks of a surface texture is not guaranteed
             // to be called at a certain time, and we respond to it only
             // when the background handler thread is running.
@@ -314,6 +319,7 @@ class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
                         request: CaptureRequest, result: TotalCaptureResult) {
             if (cameraOpened && isCapturing) {
                 drawFrame()
+                reportFPS()
             }
         }
     }
@@ -345,6 +351,26 @@ class CameraModule(context : Context) : EglHandlerThread(name=TAG) {
         }
 
         // Don't remove context here by making nothing current.
+    }
+
+    fun addAgoraCameraCallback(callback: AgoraCameraCallback) {
+        agoraCameraCallback = callback
+    }
+
+    private fun reportFPS() {
+        if (lastReportTime == -1L) {
+            lastReportTime = System.currentTimeMillis()
+            return
+        }
+
+        val diff = System.currentTimeMillis() - lastReportTime
+        if (diff <= 1000) {
+            drawFrameCount++
+        } else {
+            agoraCameraCallback!!.onFPS(drawFrameCount)
+            drawFrameCount = 1
+            lastReportTime = System.currentTimeMillis()
+        }
     }
 
     /**

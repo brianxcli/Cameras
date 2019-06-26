@@ -1,4 +1,4 @@
-package io.agora.rtc.videofukotlin.capture
+package io.agora.rtc.videofukotlin.opengles
 
 import android.os.Handler
 import android.os.HandlerThread
