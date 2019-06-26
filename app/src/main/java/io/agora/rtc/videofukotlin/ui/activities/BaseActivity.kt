@@ -13,7 +13,8 @@ abstract class BaseActivity : AppCompatActivity() {
     private val requiredPermissions : Array<String> = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.INTERNET
+        Manifest.permission.WRITE_EXTERNAL_STORAGE
+
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
