@@ -7,19 +7,23 @@ import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.opengl.EGL14
 import android.opengl.EGLSurface
+import android.opengl.Matrix
 import android.os.Handler
 import android.util.Log
 import android.util.Size
 import android.view.Surface
+import android.view.WindowManager
 import io.agora.rtc.videofukotlin.opengles.*
 import kotlin.collections.ArrayList
 
-class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
+class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private lateinit var camera: CameraDevice
     private lateinit var captureSession: CameraCaptureSession
     private lateinit var captureRequest: CaptureRequest
     private var currentCameraId: String = DEFAULT_CAMERA_ID
+    @Volatile private var cameraOrientation: Int = 0
     @Volatile private var cameraOpened: Boolean = false
     @Volatile private var isCapturing: Boolean = false
     private val cameraStateCallback: CameraStateCallBack = CameraStateCallBack()
@@ -230,6 +234,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
         override fun onOpened(cameraDevice: CameraDevice) {
             camera = cameraDevice
             currentCameraId = cameraDevice.id
+            cameraOrientation = getCameraOrientation(currentCameraId)
             cameraOpened = true
 
             if (previewPendingRequest && !isCapturing) {
@@ -248,6 +253,11 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
         override fun onError(camera: CameraDevice, error: Int) {
             cameraOpened = false
         }
+    }
+
+    private fun getCameraOrientation(id: String) : Int {
+        return cameraManager.getCameraCharacteristics(id)[
+            CameraCharacteristics.SENSOR_ORIENTATION]
     }
 
     /**
@@ -348,7 +358,19 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
         targetSurfaceTex.updateTexImage()
         targetSurfaceTex.getTransformMatrix(vertexMatrix)
 
-        program!!.draw(EglUtil.getIdentityMatrix(), vertexMatrix, targetTexId, viewWidth, viewHeight)
+        val mvp = FloatArray(16)
+        Matrix.setIdentityM(mvp, 0)
+
+        // The conclusions are obtained from tests.
+        // 1. The mirror is accomplished according to the horizontal
+        //    direction no matter where the status bar is;
+        // 2. The propagate result of the mirroring and transform
+        //    matrix is that the rotation in order to draw properly is
+        //    just the same as the surface rotation (a multiple of 90).
+        val surface = windowManager.defaultDisplay.rotation
+        Matrix.setRotateM(mvp, 0, (surface * 90).toFloat(), 0F, 0F, 1F)
+
+        program!!.draw(mvp, vertexMatrix, targetTexId, viewWidth, viewHeight)
 
         if (eglCore.isCurrent(eglPreviewSurface)) {
             eglCore.swapBuffers(eglPreviewSurface)
@@ -390,7 +412,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG) {
      * Release OpenGLES context
      */
     override fun onReleaseEglContext() {
-        Log.i(TAG, "release EGLThread")
+        Log.d(TAG, "release EGLThread")
 
         // Program needs the current context to release itself
         program!!.release()
