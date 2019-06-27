@@ -30,20 +30,12 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         local_preview.surfaceTextureListener = this
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-
-        eventHandler().removeHandler(this)
-        rtcEngine().leaveChannel()
-        RtcEngine.destroy()
-    }
-
     override fun onAllPermissionsGranted() {
         super.onAllPermissionsGranted()
         // configRtcEngine()
         initUI()
-        agoraCamera().openCamera()
-        agoraCamera().startPreview()
+        application().agoraCamera().openCamera()
+        application().agoraCamera().startPreview()
     }
 
     private fun initUI() {
@@ -52,12 +44,12 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         btn_rotate.setOnClickListener(this)
         btn_scaling.setOnClickListener(this)
 
-        agoraCamera().addAgoraCameraCallback(this)
+        application().agoraCamera().addAgoraCameraCallback(this)
     }
 
     override fun onClick(view: View?) {
         when (view!!.id) {
-            btn_switch_camera.id -> { agoraCamera().switchCamera() }
+            btn_switch_camera.id -> { application().agoraCamera().switchCamera() }
             btn_close.id -> { finish() }
             btn_rotate.id -> {
                 ObjectAnimator.ofFloat(local_preview, "rotationY", 0F, 360F).apply {
@@ -74,25 +66,6 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
                 scaleAnim.reset()
             }
         }
-    }
-
-    private fun configRtcEngine() {
-        rtcEngine().setVideoEncoderConfiguration(VideoEncoderConfiguration(
-            VD_640x480,
-            VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15,
-            STANDARD_BITRATE,
-            VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_FIXED_PORTRAIT))
-
-        addHandler(this)
-        rtcEngine().joinChannel(null, "12345", null, 0)
-    }
-
-    private fun prepareRemoteView(uid : Int) {
-        val surface : SurfaceView = RtcEngine.CreateRendererView(this)
-        surface.setZOrderOnTop(true)
-        rtcEngine().setupRemoteVideo(VideoCanvas(surface, RENDER_MODE_HIDDEN, uid))
-        remote_view_container.addView(surface)
-        remote_view_container.visibility = View.VISIBLE
     }
 
     override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
@@ -112,7 +85,7 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture?, width: Int, height: Int) {
-        agoraCamera().setDisplayView(surface!!, width, height)
+        application().agoraCamera().setDisplayView(surface!!, width, height)
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture?) {
@@ -123,14 +96,14 @@ class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextur
         // if the Activity exits, this method will be called AFTER the Activity's
         // onDestroy() is called.
         Log.i(TAG, "onSurfaceTextureDestroyed")
-        agoraCamera().setDisplayView(null, 0, 0)
+        application().agoraCamera().setDisplayView(null, 0, 0)
         return true
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture?, width: Int, height: Int) {
         // It is the right time we call back to camera module to set up
         // the preview display.
-        agoraCamera().setDisplayView(surface!!, width, height)
+        application().agoraCamera().setDisplayView(surface!!, width, height)
     }
 
     override fun onFPS(fps: Int) {

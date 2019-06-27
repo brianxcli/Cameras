@@ -10,15 +10,17 @@ import android.widget.Toast
 private const val REQUEST_CODE_ALL_PERMISSIONS : Int = 999
 
 abstract class BaseActivity : AppCompatActivity() {
+    private lateinit var agoraApplication: AgoraApplication
+
     private val requiredPermissions : Array<String> = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.WRITE_EXTERNAL_STORAGE
-
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        agoraApplication = application as AgoraApplication
         checkPermission()
     }
 
@@ -62,9 +64,16 @@ abstract class BaseActivity : AppCompatActivity() {
          return String.format(format, *permissions)
     }
 
+    fun application() : AgoraApplication { return agoraApplication }
+
     /**
      * Anything that should be done after all
      * requested permissions are granted.
      */
     abstract fun onAllPermissionsGranted()
+
+    override fun onDestroy() {
+        super.onDestroy()
+        application().agoraCamera().stopCapture(false, false)
+    }
 }
