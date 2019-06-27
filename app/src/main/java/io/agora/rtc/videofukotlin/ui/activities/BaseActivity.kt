@@ -11,6 +11,7 @@ private const val REQUEST_CODE_ALL_PERMISSIONS : Int = 999
 
 abstract class BaseActivity : AppCompatActivity() {
     private lateinit var agoraApplication: AgoraApplication
+    private var activityFinish = false
 
     private val requiredPermissions : Array<String> = arrayOf(
         Manifest.permission.CAMERA,
@@ -74,6 +75,14 @@ abstract class BaseActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        application().agoraCamera().stopCapture(false, false)
+        application().agoraCamera().stopPreview()
+        if (activityFinish) {
+            application().agoraCamera().closeSession(true, false)
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        activityFinish = true
     }
 }

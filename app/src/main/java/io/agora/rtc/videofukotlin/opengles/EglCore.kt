@@ -259,6 +259,11 @@ class EglCore {
         return texId
     }
 
+    fun unbindTexture(target: Int) {
+        GLES20.glBindTexture(target, 0)
+        checkEglError("glBindTextures")
+    }
+
     private fun checkEglError(msg: String) {
         val error = EGL14.eglGetError()
         if (error != EGL14.EGL_SUCCESS) {

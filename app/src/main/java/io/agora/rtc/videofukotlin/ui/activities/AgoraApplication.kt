@@ -1,6 +1,7 @@
 package io.agora.rtc.videofukotlin.ui.activities
 
 import android.app.Application
+import android.util.Log
 import io.agora.rtc.videofukotlin.capture.AgoraCamera
 
 class AgoraApplication : Application() {
@@ -13,11 +14,13 @@ class AgoraApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d("AgoraApplication", "AgoraApplication onCreate")
         agoraCamera = AgoraCamera(applicationContext, defaultWidth, defaultHeight)
     }
 
     override fun onTerminate() {
         super.onTerminate()
-        agoraCamera.stopCapture(true, true)
+        Log.d("AgoraApplication", "AgoraApplication onTerminate")
+        agoraCamera.release()
     }
 }

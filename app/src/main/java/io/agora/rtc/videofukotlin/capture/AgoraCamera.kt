@@ -7,6 +7,7 @@ import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.opengl.EGL14
 import android.opengl.EGLSurface
+import android.opengl.GLES11Ext
 import android.opengl.Matrix
 import android.os.Handler
 import android.util.Log
@@ -23,8 +24,9 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     private lateinit var captureSession: CameraCaptureSession
     private lateinit var captureRequest: CaptureRequest
     private var currentCameraId: String = DEFAULT_CAMERA_ID
-    @Volatile private var cameraOrientation: Int = 0
-    @Volatile private var cameraOpened: Boolean = false
+    @Volatile private var cameraOrientation = 0
+    @Volatile private var cameraConnected = false
+    @Volatile private var cameraOpened = false
     @Volatile private var isCapturing: Boolean = false
     private val cameraStateCallback: CameraStateCallBack = CameraStateCallBack()
     private val captureStateCallBack: CaptureStateCallBack = CaptureStateCallBack()
@@ -90,7 +92,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
      * It is recommended that the width is no less than the height.
      */
     fun configure(width: Int, height: Int) {
-        if (cameraOpened && isCapturing) {
+        if (cameraConnected && isCapturing) {
             Log.w(TAG, "Cannot set the capture size when previewing")
             return
         }
@@ -114,8 +116,10 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
 
     @SuppressLint("MissingPermission")
     fun openCamera(id: String) {
-        currentCameraId = id
-        cameraManager.openCamera(currentCameraId, cameraStateCallback, handler)
+        if (!cameraOpened) {
+            currentCameraId = id
+            cameraManager.openCamera(currentCameraId, cameraStateCallback, handler)
+        }
     }
 
     fun openCamera() {
@@ -125,6 +129,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     fun startPreview() {
         handler.post{
             if (::camera.isInitialized && cameraOpened && !isCapturing) {
+                shouldCloseCurrentCamera = false
                 createCaptureSession()
             } else {
                 previewPendingRequest = true
@@ -133,24 +138,8 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     }
 
     private fun createCaptureSession() {
-        preparePreviewTargets()
+        Log.i(TAG, "create capture session")
         camera.createCaptureSession(displayTargets, captureStateCallBack, handler)
-    }
-
-    private fun preparePreviewTargets() {
-        if (displayTargets.isNotEmpty()) {
-            displayTargets.clear()
-        }
-
-        // It should be guaranteed that we are in an OpenGL context thread.
-        targetTexId = eglCore.createTextureOES()
-        targetSurfaceTex = SurfaceTexture(targetTexId)
-
-        // The size of the captured images
-        val size: Size = findOptimalBufferSize(width, height)
-        targetSurfaceTex.setDefaultBufferSize(size.width, size.height)
-
-        displayTargets.add(Surface(targetSurfaceTex))
     }
 
     /**
@@ -192,14 +181,27 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
         return if (found) curSize else Size(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
     }
 
-    fun stopCapture(shouldCloseCurrentCamera: Boolean, quitWorkingThread: Boolean) {
-        if (cameraOpened && isCapturing) {
+    fun stopPreview() {
+        if (::camera.isInitialized && cameraConnected && isCapturing) {
             captureSession.abortCaptures()
-            closeSession(shouldCloseCurrentCamera, quitWorkingThread)
+            isCapturing = false
+
+            handler.post {
+                // Not so elegant code here
+                // release current display view when the
+                // preview is stopped.
+                eglCore.releaseSurface(eglPreviewSurface)
+                eglPreviewSurface = EGL14.EGL_NO_SURFACE
+            }
         }
     }
 
-    private fun closeSession(shouldCloseCamera: Boolean, quitWorkingThread: Boolean) {
+    fun release() {
+        handler.post{ this@AgoraCamera.quit() }
+        shouldQuitThread = false
+    }
+
+    fun closeSession(shouldCloseCamera: Boolean, quitWorkingThread: Boolean) {
         Log.d(TAG, "close capture session")
         shouldCloseCurrentCamera = shouldCloseCamera
         shouldQuitThread = quitWorkingThread
@@ -213,14 +215,17 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     }
 
     private fun closeCamera() {
-        camera.close()
+        if (cameraOpened) {
+            camera.close()
+            cameraOpened = false
+        }
     }
 
     fun switchCamera() {
         shouldReopenCamera = true
         shouldQuitThread = false
         currentCameraId = switchCameraId()
-        stopCapture(true, shouldQuitThread)
+        closeSession(true, shouldQuitThread)
     }
 
     private fun switchCameraId() : String {
@@ -271,9 +276,11 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
 
         override fun onConfigured(session: CameraCaptureSession) {
             // The configuration is complete and the session is ready to actually capture data
+            Log.d(TAG, "Camera ${session.device.id} configured $session")
             captureSession = session
+            cameraConnected = true
 
-            if (::camera.isInitialized && cameraOpened) {
+            if (::camera.isInitialized && cameraConnected) {
                 startCapture(session)
             }
         }
@@ -289,8 +296,16 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
             // Creating a new session also calls the old session's callback here.
             // Closing the session also close the connection to the camera, but
             // the device can be reopened later.
+            Log.d(TAG, "Camera ${session.device.id} session closed ${session}")
             isCapturing = false
-            cameraOpened = false
+
+            if (captureSession == session) {
+                // The creation of another capture session will cause
+                // the previous session to be closed. But we don't want
+                // any non current session to set this flag, confusing
+                // the state management.
+                cameraConnected = false
+            }
 
             if (shouldCloseCurrentCamera) { closeCamera() }
 
@@ -331,7 +346,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     inner class CaptureResultCallback : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession,
                         request: CaptureRequest, result: TotalCaptureResult) {
-            if (cameraOpened && isCapturing) {
+            if (cameraConnected && isCapturing) {
                 drawFrame()
                 reportFPS()
             }
@@ -399,6 +414,8 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
         }
     }
 
+    private var forContext: EGLSurface = EGL14.EGL_NO_SURFACE
+
     /**
      * Creates the OpenGLES context here, giving the handler thread
      * the ability to do texture rendering
@@ -406,6 +423,27 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     override fun onCreateEglContext() {
         Log.d(TAG, "create EGLThread")
         eglCore = EglCore()
+        forContext = eglCore.createOffscreenSurface(16, 16)
+        eglCore.makeCurrent(forContext)
+        preparePreviewTargets()
+    }
+
+    private fun preparePreviewTargets() {
+        if (displayTargets.isNotEmpty()) {
+            displayTargets.clear()
+        }
+
+        // It should be guaranteed that we are in an OpenGL context thread.
+        Log.d(TAG, "create textures")
+        targetTexId = eglCore.createTextureOES()
+        targetSurfaceTex = SurfaceTexture(targetTexId)
+
+        // The size of the captured images
+        Log.d(TAG, "set buffer size")
+        val size: Size = findOptimalBufferSize(width, height)
+        targetSurfaceTex.setDefaultBufferSize(size.width, size.height)
+
+        displayTargets.add(Surface(targetSurfaceTex))
     }
 
     /**
@@ -414,12 +452,20 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     override fun onReleaseEglContext() {
         Log.d(TAG, "release EGLThread")
 
+        eglCore.unbindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
+        targetSurfaceTex.release()
+
         // Program needs the current context to release itself
         program!!.release()
 
         if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
             eglCore.releaseSurface(eglPreviewSurface)
             eglPreviewSurface = EGL14.EGL_NO_SURFACE
+        }
+
+        if (forContext != EGL14.EGL_NO_SURFACE) {
+            eglCore.releaseSurface(forContext)
+            forContext = EGL14.EGL_NO_SURFACE
         }
 
         eglCore.release()
