@@ -138,7 +138,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
     }
 
     private fun createCaptureSession() {
-        Log.i(TAG, "create capture session")
+        Log.d(TAG, "create capture session")
         camera.createCaptureSession(displayTargets, captureStateCallBack, handler)
     }
 
@@ -336,6 +336,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
             // to be called at a certain time, and we respond to it only
             // when the background handler thread is running.
             handler.post {
+                Log.d(TAG, "setVideoDisplay width:$width|height:$height")
                 viewSurface = surface
                 viewWidth = width
                 viewHeight = height
@@ -373,6 +374,13 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
         targetSurfaceTex.updateTexImage()
         targetSurfaceTex.getTransformMatrix(vertexMatrix)
 
+//        vertexMatrix.forEachIndexed{ index, value ->
+//            print("$value ")
+//            if (index % 4 == 3) {
+//                println()
+//            }
+//        }
+
         val mvp = FloatArray(16)
         Matrix.setIdentityM(mvp, 0)
 
@@ -382,10 +390,12 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
         // 2. The propagate result of the mirroring and transform
         //    matrix is that the rotation in order to draw properly is
         //    just the same as the surface rotation (a multiple of 90).
-        val surface = windowManager.defaultDisplay.rotation
-        Matrix.setRotateM(mvp, 0, (surface * 90).toFloat(), 0F, 0F, 1F)
+        val surface = windowManager.defaultDisplay.rotation * 90
+        Matrix.setRotateM(mvp, 0, surface.toFloat(), 0F, 0F, 1F)
 
-        program!!.draw(mvp, vertexMatrix, targetTexId, viewWidth, viewHeight)
+        // program!!.draw(mvp, vertexMatrix, targetTexId, viewWidth, viewHeight)
+        program!!.drawViewRatio(mvp, vertexMatrix, targetTexId,
+            width, height, viewWidth, viewHeight, surface)
 
         if (eglCore.isCurrent(eglPreviewSurface)) {
             eglCore.swapBuffers(eglPreviewSurface)
