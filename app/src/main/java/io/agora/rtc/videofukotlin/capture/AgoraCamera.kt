@@ -372,14 +372,47 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
 
         // Update the most recent capture image, draw the buffer
         targetSurfaceTex.updateTexImage()
+
+        // Transform matrices are identical for all devices
+        // which is proved by several different models.
+        // So creates matrices by hard coding rather than
+        // obtaining from surface textures each time we
+        // update the texture image.
+
         targetSurfaceTex.getTransformMatrix(vertexMatrix)
 
-//        vertexMatrix.forEachIndexed{ index, value ->
-//            print("$value ")
-//            if (index % 4 == 3) {
-//                println()
-//            }
-//        }
+        // Mi Note LTE returns a wrong matrix, so there is a workaround
+        // of writing a fixed vertex matrix.
+
+        // Issue when setting texture arrays manually:
+        // The preview images are flipped when the session is closed.
+        // We need a way to prevent further drawing right after
+        // the close session function is called, not waiting for the
+        // onClose callback.
+
+        //val textures: FloatArray =
+        //    if (currentCameraId == LENS_ID_BACK) {
+        //        floatArrayOf(
+        //            0f, -1f, 0f, 0f,
+        //            1f, 0f, 0f, 0f,
+        //            0f, 0f, 1f, 0f,
+        //            0f, 1f, 0f, 1f
+        //        )
+        //    } else {
+        //        floatArrayOf(
+        //            0f, -1f, 0f, 0f,
+        //            -1f, 0f, 0f, 0f,
+        //            0f, 0f, 1f, 0f,
+        //            1f, 1f, 0f, 1f
+        //        )
+        //    }
+
+        //textures.forEachIndexed{ index, value ->
+        //    print("$value ")
+        //    if (index % 4 == 3) {
+        //        println()
+        //    }
+        //}
 
         val mvp = FloatArray(16)
         Matrix.setIdentityM(mvp, 0)
@@ -391,6 +424,8 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
         //    matrix is that the rotation in order to draw properly is
         //    just the same as the surface rotation (a multiple of 90).
         val surface = windowManager.defaultDisplay.rotation * 90
+        //Log.i(TAG, "Current display orientation: $surface")
+        //Log.i(TAG, "-------------------------------------------------------")
         Matrix.setRotateM(mvp, 0, surface.toFloat(), 0F, 0F, 1F)
 
         // program!!.draw(mvp, vertexMatrix, targetTexId, viewWidth, viewHeight)

@@ -113,65 +113,52 @@ class ProgramTextureOES {
 
     private fun ratioTexCoord(texWidth: Int, texHeight: Int, viewWidth: Int,
                               viewHeight: Int, rotation: Int) : FloatArray {
-        val texW = texHeight.toFloat()
-        val texH = texWidth.toFloat()
+        val w: Int
+        val h: Int
 
-        val ratioT = texW / texH
-        val ratioV = viewWidth / viewHeight.toFloat()
+        // the captured image is always horizontal, and a rotation of
+        // 0 or 180 means the corresponding device direction is
+        // vertical. So we need to change the direction of the
+        // texture to crop correctly.
+        if (rotation == 0 || rotation == 180) {
+            w = viewHeight
+            h = viewWidth
+        } else {
+            w = viewWidth
+            h = viewHeight
+        }
 
-        val actualW: Float
-        val actualH: Float
+        val rt = texWidth / texHeight.toFloat()
+        val rv = w / h.toFloat()
 
-        when (ratioT >= ratioV) {
+        when (rt == rv) {
             true -> {
-                if (texW >= texHeight) {
-                    actualH = texH
-                    actualW = actualH * ratioV
-
-                    val diffX = (texW - actualW) / 2 / texW
-                    return floatArrayOf(
-                        diffX, 0F,
-                        1 - diffX, 0F,
-                        diffX, 1F,
-                        1 - diffX, 1F
-                    )
-                } else {
-                    actualW = texW
-                    actualH = actualW / ratioV
-
-                    val diffY = (texH - actualH) / 2 / texH
-                    return floatArrayOf(
-                        0F, diffY,
-                        1F, diffY,
-                        0F, 1 - diffY,
-                        1F, 1 - diffY
-                    )
-                }
+                return FULL_RECTANGLE_TEX_COORDS
             }
-
-            false -> {
-                if (texW <= texH) {
-                    actualW = texW
-                    actualH = actualW / ratioV
-
-                    val diffY = (texH - actualH) / 2 / texH
-                    return floatArrayOf(
-                        0F, diffY,
-                        1F, diffY,
-                        0F, 1 - diffY,
-                        1F, 1 - diffY
-                    )
-                } else {
-                    actualH = texH
-                    actualW = actualH * ratioV
-
-                    val diffX = (texW - actualW) / 2 / texW
-                    return floatArrayOf(
-                        diffX, 0F,
-                        1 - diffX, 0F,
-                        diffX, 1F,
-                        1 - diffX, 1F
-                    )
+            else -> {
+                when (rt - rv > 0) {
+                    true -> {
+                        val ratio = w / texWidth.toFloat()
+                        val actualH = texHeight * ratio
+                        val d = (h - actualH) / h.toFloat() / 2
+                        return floatArrayOf(
+                            0f, d,
+                            1f, d,
+                            0f, 1 - d,
+                            1f, 1 - d
+                        )
+                    }
+                    else -> {
+                        val ratio = h / texHeight.toFloat()
+                        val actualW = texWidth * ratio
+                        val d = (w - actualW) / w.toFloat() / 2
+                        return floatArrayOf(
+                            d, 0f,
+                            1 - d, 0f,
+                            d, 1f,
+                            1 - d, 1f
+                        )
+                    }
                 }
             }
         }
