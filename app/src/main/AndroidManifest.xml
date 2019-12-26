@@ -27,7 +27,13 @@
         </activity>
 
         <activity
-            android:name=".ui.activities.LiveRoomActivity"
-            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"/>
+            android:name=".ui.activities.LiveActivity"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+            android:screenOrientation="portrait"/>
+
+        <activity
+            android:name=".ui.activities.CameraActivity"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+            android:screenOrientation="sensor"/>
     </application>
 </manifest>

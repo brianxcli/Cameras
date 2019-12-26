@@ -20,7 +20,7 @@ class MainActivity : BaseActivity(), View.OnClickListener {
     override fun onClick(v: View?) {
         when (v?.id) {
             btn_join_channel.id -> {
-                val intent = Intent(this, LiveRoomActivity::class.java)
+                val intent = Intent(this, CameraActivity::class.java)
                 startActivity(intent)
             }
         }
