@@ -19,9 +19,9 @@ import io.agora.rtc.videofukotlin.capture.AgoraCameraCallback
 import io.agora.rtc.videofukotlin.engine.IEventHandler
 import kotlinx.android.synthetic.main.live_room_activity.*
 
-private const val TAG : String = "LiveRoomActivity"
+private const val TAG : String = "LiveActivity"
 
-class LiveRoomActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener,
+class LiveActivity : RTCActivity(), IEventHandler, TextureView.SurfaceTextureListener,
     View.OnClickListener, AgoraCameraCallback {
 
     override fun onCreate(savedInstanceState : Bundle?) {

@@ -211,7 +211,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
         // set any listener and no handler will be created and thus no handler
         // can be used to send any message. Xiao Mi must have been modified the
         // code and throw this warning in a wrong condition. We just ignore that.
-        captureSession.close()
+        if (::captureSession.isInitialized) captureSession.close()
     }
 
     private fun closeCamera() {
