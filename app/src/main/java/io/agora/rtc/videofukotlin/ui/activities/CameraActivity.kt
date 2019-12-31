@@ -4,6 +4,8 @@ import android.graphics.SurfaceTexture
 import android.hardware.Camera
 import android.opengl.EGL14
 import android.opengl.EGLSurface
+import android.opengl.GLES20
+import android.opengl.Matrix
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -24,8 +26,7 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
     var program: ProgramTextureOES? = null
     var surface: EGLSurface = EGL14.EGL_NO_SURFACE
     var dummySurface : EGLSurface = EGL14.EGL_NO_SURFACE
-
-    lateinit var camera : Camera
+    @Volatile var available: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,29 +38,17 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
 
     }
 
-    private fun renderThreadRunning() : Boolean {
-        return ::renderThread.isInitialized && renderThread.isAlive
-    }
-
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture?, width: Int, height: Int) {
         Log.i(tag, "onSurfaceTextureSizeChanged")
-        resetSurface(surfaceTexture, width, height)
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture?) {
-        Log.i(tag, "onSurfaceTextureUpdated")
+        //Log.i(tag, "onSurfaceTextureUpdated")
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture?): Boolean {
         Log.i(tag, "onSurfaceTextureDestroyed")
-        if (renderThreadRunning()) {
-            handler.post {
-                if (::camera.isInitialized) {
-                    camera.stopPreview()
-                    camera.release()
-                }
-            }
-        }
+        available = false
         return true
     }
 
@@ -68,25 +57,26 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
         renderThread = RenderThread(tag)
         renderThread.start()
         handler = Handler(renderThread.looper)
-
-        resetSurface(surfaceTexture, width, height)
-    }
-
-    private fun resetSurface(surfaceTexture: SurfaceTexture?, width: Int, height: Int) {
-        surfaceTexture!!.setDefaultBufferSize(width, height)
-        if (renderThreadRunning()) {
-            handler.post {
-                camera = Camera.open()
-                camera.setPreviewTexture(surfaceTexture)
-                camera.setDisplayOrientation(90)
-                camera.startPreview()
-            }
+        available = true
+        handler.post {
+            renderThread.startPreview(surfaceTexture!!, width, height)
         }
     }
 
-    inner class RenderThread(name: String) : HandlerThread(name) {
+    inner class RenderThread(name: String) : HandlerThread(name), Camera.PreviewCallback {
+        private lateinit var camera: Camera
+        private var viewWidth: Int = 0
+        private var viewHeight: Int = 0
+
+        private var textureId = 0
+        private lateinit var previewTex : SurfaceTexture
+        private lateinit var buffer : ByteArray
+        private val matrix = FloatArray(16)
+        private val mvp = FloatArray(16)
+
         override fun start() {
             initOpenGL()
+            openCamera()
             super.start()
         }
 
@@ -96,14 +86,44 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
             dummySurface = eglCore.createOffscreenSurface(1, 1)
             eglCore.makeCurrent(dummySurface)
             program = ProgramTextureOES()
+            textureId = eglCore.createTextureOES()
+            previewTex = SurfaceTexture(textureId)
+        }
+
+        private fun openCamera() {
+            camera = Camera.open(Camera.CameraInfo.CAMERA_FACING_BACK)
+        }
+
+        fun startPreview(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+            surface = eglCore.createWindowSurface(surfaceTexture)
+            camera.setPreviewTexture(previewTex)
+            camera.parameters.setPictureSize(1920, 1080)
+            buffer = ByteArray(1920 * 1080 * 3 / 2)
+            camera.addCallbackBuffer(buffer)
+            camera.setPreviewCallbackWithBuffer(this)
+            camera.setDisplayOrientation(0)
+            camera.startPreview()
+            Matrix.setIdentityM(mvp, 0)
+            viewWidth = width
+            viewHeight = height
         }
 
         override fun quit(): Boolean {
+            stopPreview()
             releaseOpenGL()
             return super.quit()
         }
 
+        private fun stopPreview() {
+            if (::camera.isInitialized) {
+                camera.stopPreview()
+                camera.release()
+            }
+        }
+
         private fun releaseOpenGL() {
+            eglCore.unbindTexture(textureId)
+            previewTex.release()
             program?.release()
             releaseSurface()
             eglCore.release()
@@ -115,6 +135,33 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
                 eglCore.releaseSurface(dummySurface)
                 dummySurface = EGL14.EGL_NO_SURFACE
             }
+
+            if (surface != EGL14.EGL_NO_SURFACE) {
+                eglCore.releaseSurface(surface)
+                surface = EGL14.EGL_NO_SURFACE
+            }
+        }
+
+        override fun onPreviewFrame(data: ByteArray?, camera: Camera?) {
+            if (!eglCore.isCurrent(surface)) {
+                eglCore.makeCurrent(surface)
+                GLES20.glViewport(0, 0, viewWidth, viewHeight)
+            }
+
+            if (available) {
+                previewTex.updateTexImage()
+                previewTex.getTransformMatrix(matrix)
+
+                program?.draw(mvp, matrix, textureId, viewWidth, viewHeight)
+                eglCore.swapBuffers(surface)
+
+            }
+            equivalence()
+            camera?.addCallbackBuffer(buffer)
+        }
+
+        private fun equivalence() {
+
         }
     }
 }
