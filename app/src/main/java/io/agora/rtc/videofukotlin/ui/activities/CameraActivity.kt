@@ -13,7 +13,8 @@ import android.util.Log
 import android.view.TextureView
 import io.agora.rtc.videofukotlin.R
 import io.agora.rtc.videofukotlin.opengles.EglCore
-import io.agora.rtc.videofukotlin.opengles.ProgramTextureOES
+import io.agora.rtc.videofukotlin.opengles.program.Program2D
+import io.agora.rtc.videofukotlin.opengles.program.ProgramOES
 import kotlinx.android.synthetic.main.camera_activity.*
 
 class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
@@ -23,10 +24,14 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
     private lateinit var handler : Handler
 
     lateinit var eglCore : EglCore
-    var program: ProgramTextureOES? = null
+    var programOES: ProgramOES? = null
+    var program2D: Program2D? = null
     var surface: EGLSurface = EGL14.EGL_NO_SURFACE
     var dummySurface : EGLSurface = EGL14.EGL_NO_SURFACE
     @Volatile var available: Boolean = false
+
+    var viewWidth = 0
+    var viewHeight = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +45,8 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture?, width: Int, height: Int) {
         Log.i(tag, "onSurfaceTextureSizeChanged")
+        viewWidth = width
+        viewHeight = height
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture?) {
@@ -54,6 +61,8 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
 
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture?, width: Int, height: Int) {
         Log.i(tag, "onSurfaceTextureAvailable")
+        viewWidth = width
+        viewHeight = height
         renderThread = RenderThread(tag)
         renderThread.start()
         handler = Handler(renderThread.looper)
@@ -73,6 +82,7 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
         private lateinit var buffer : ByteArray
         private val matrix = FloatArray(16)
         private val mvp = FloatArray(16)
+        private val identity = FloatArray(16)
 
         override fun start() {
             initOpenGL()
@@ -85,9 +95,12 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
             // create dummy surface to create a context
             dummySurface = eglCore.createOffscreenSurface(1, 1)
             eglCore.makeCurrent(dummySurface)
-            program = ProgramTextureOES()
+            programOES = ProgramOES()
+            program2D = Program2D()
             textureId = eglCore.createTextureOES()
             previewTex = SurfaceTexture(textureId)
+
+            Matrix.setIdentityM(identity, 0)
         }
 
         private fun openCamera() {
@@ -101,9 +114,10 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
             buffer = ByteArray(1920 * 1080 * 3 / 2)
             camera.addCallbackBuffer(buffer)
             camera.setPreviewCallbackWithBuffer(this)
-            camera.setDisplayOrientation(0)
+            camera.setDisplayOrientation(90)
             camera.startPreview()
             Matrix.setIdentityM(mvp, 0)
+            Matrix.scaleM(mvp, 0, -1f, 1f, 1f)
             viewWidth = width
             viewHeight = height
         }
@@ -124,7 +138,8 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
         private fun releaseOpenGL() {
             eglCore.unbindTexture(textureId)
             previewTex.release()
-            program?.release()
+            programOES?.release()
+            program2D?.release()
             releaseSurface()
             eglCore.release()
         }
@@ -145,23 +160,22 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
         override fun onPreviewFrame(data: ByteArray?, camera: Camera?) {
             if (!eglCore.isCurrent(surface)) {
                 eglCore.makeCurrent(surface)
-                GLES20.glViewport(0, 0, viewWidth, viewHeight)
             }
 
             if (available) {
                 previewTex.updateTexImage()
                 previewTex.getTransformMatrix(matrix)
 
-                program?.draw(mvp, matrix, textureId, viewWidth, viewHeight)
+                // Matrix.setRotateM(mvp, 0, 90f, 0f, 0f, 1f)
+                val tex = programOES?.drawToFramebuffer(textureId, 1920, 1080)
+
+                GLES20.glViewport(0, 0, viewWidth, viewHeight)
+                program2D?.draw(tex!!, 1920, 1080,
+                    viewWidth, viewHeight, mvp, matrix)
                 eglCore.swapBuffers(surface)
 
             }
-            equivalence()
             camera?.addCallbackBuffer(buffer)
-        }
-
-        private fun equivalence() {
-
         }
     }
 }

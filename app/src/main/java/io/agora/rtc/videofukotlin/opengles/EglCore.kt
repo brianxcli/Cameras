@@ -221,6 +221,10 @@ class EglCore {
         return createTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
     }
 
+    fun createTexture2D() : Int {
+        return createTexture(GLES20.GL_TEXTURE_2D)
+    }
+
     private fun createTexture(target: Int) : Int {
         // As the GL to acquire an available texture object that is
         // returned as a texture id. Then we bind(assign) this object
