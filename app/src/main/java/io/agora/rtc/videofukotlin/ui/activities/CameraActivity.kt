@@ -114,10 +114,9 @@ class CameraActivity : BaseActivity(), TextureView.SurfaceTextureListener {
             buffer = ByteArray(1920 * 1080 * 3 / 2)
             camera.addCallbackBuffer(buffer)
             camera.setPreviewCallbackWithBuffer(this)
-            camera.setDisplayOrientation(90)
+            camera.setDisplayOrientation(0)
             camera.startPreview()
             Matrix.setIdentityM(mvp, 0)
-            Matrix.scaleM(mvp, 0, -1f, 1f, 1f)
             viewWidth = width
             viewHeight = height
         }

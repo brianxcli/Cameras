@@ -15,6 +15,7 @@ import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
 import io.agora.rtc.videofukotlin.opengles.*
+import io.agora.rtc.videofukotlin.opengles.program.ProgramOES
 import kotlin.collections.ArrayList
 
 class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
@@ -56,7 +57,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
 
     // Used to draw on the actual display, TextureView for example
     private lateinit var eglCore : EglCore
-    private var program: ProgramTextureOES? = null
+    private var program: ProgramOES? = null
     private var eglPreviewSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private val vertexMatrix = FloatArray(16)
 
@@ -367,7 +368,7 @@ class AgoraCamera(context : Context) : EglHandlerThread(name=TAG)  {
 
         if (program == null) {
             // Need egl context and one surface made current
-            program = ProgramTextureOES()
+            program = ProgramOES()
         }
 
         // Update the most recent capture image, draw the buffer
